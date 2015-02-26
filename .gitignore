@@ -1,0 +1,10 @@
+*.o
+arena
+index
+*.dust
+TODO
+tags
+dust
+dust-check
+dust-archive
+dust-extract
