@@ -53,6 +53,89 @@ FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
   return listing;
 }
 
+int for_item_in_listing(struct dust_log *log,
+                        FILE *listing,
+                        int callback(struct dust_log *log, struct listing_item item))
+{
+  int rv = DUST_OK;
+
+  assert(log);
+  assert(listing);
+  assert(callback);
+
+  while (1) {
+    struct listing_item item;
+    uint32_t pathlen;
+
+    int c = getc(listing);
+    if (c == EOF) {
+      break;
+    } else {
+      assert(c == ungetc(c, listing));
+    }
+
+    /* Read record type and path length */
+    assert(1 == fread(&item.recordtype, sizeof(item.recordtype), 1, listing));
+    assert(1 == fread(&pathlen, sizeof(pathlen), 1, listing));
+    item.recordtype = ntohl(item.recordtype);
+    pathlen = ntohl(pathlen);
+
+    /* Read path */
+    item.path = malloc(pathlen);
+    assert(item.path);
+    assert(pathlen == fread(item.path, 1, pathlen, listing));
+
+    switch (item.recordtype) {
+    case DUST_LISTING_FILE: {
+      assert(1 == fread(&item.data.file.expected_fingerprint,
+                        DUST_FINGERPRINT_SIZE,
+                        1,
+                        listing));
+      assert(SHA256_DIGEST_LENGTH == fread(item.data.file.expected_hash,
+                                           1,
+                                           SHA256_DIGEST_LENGTH,
+                                           listing));
+      break;
+    }
+    case DUST_LISTING_DIRECTORY: {
+      /* nothing special stored for directories */
+      break;
+    }
+    case DUST_LISTING_SYMLINK: {
+      uint32_t targetlen = 0;
+
+      assert(1 == fread(&targetlen, sizeof(targetlen), 1, listing));
+      targetlen = ntohl(targetlen);
+
+      item.data.symlink.targetpath = malloc(targetlen);
+      assert(item.data.symlink.targetpath);
+      assert(targetlen == fread(item.data.symlink.targetpath,
+                                1,
+                                targetlen,
+                                listing));
+      break;
+    }
+    default: {
+      assert(0 && "invalid record type in listing");
+    }
+    }
+
+    assert(1 == fread(&item.permissions, sizeof(item.permissions), 1, listing));
+    item.permissions = ntohl(item.permissions);
+
+    if (DUST_OK != callback(log, item)) {
+      rv = !DUST_OK;
+    }
+
+    free(item.path);
+    if (item.recordtype == DUST_LISTING_SYMLINK) {
+      free(item.data.symlink.targetpath);
+    }
+  }
+
+  return rv;
+}
+
 int extract_file(struct dust_log *log,
                  struct dust_fingerprint fingerprint,
                  FILE *outfile,

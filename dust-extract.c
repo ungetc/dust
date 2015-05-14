@@ -15,12 +15,6 @@
 #include "dust-file-utils.h"
 #include "options.h"
 
-#define DUST_OK 0
-
-#define DUST_LISTING_FILE      0
-#define DUST_LISTING_DIRECTORY 1
-#define DUST_LISTING_SYMLINK   2
-
 /* If set, operate in 'dry run' mode -- don't actually extract any
  * files, but perform all other processing normally. */
 int g_dry_run = 0;

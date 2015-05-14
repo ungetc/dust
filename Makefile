@@ -14,7 +14,8 @@ BINARIES= \
   dust \
   dust-check \
   dust-archive \
-  dust-extract
+  dust-extract \
+  dust-listing
 
 .PHONY: clean all install
 
