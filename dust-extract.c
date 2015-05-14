@@ -11,19 +11,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <openssl/sha.h>
-
 #include "dust-internal.h"
+#include "dust-file-utils.h"
 #include "options.h"
 
 #define DUST_OK 0
-
-#define DUST_VERSION 1
-
-#define DUST_MAGIC ((uint32_t)0xa7842a73ULL)
-
-#define DUST_TYPE_FILEDATA     0
-#define DUST_TYPE_FINGERPRINTS 1
 
 #define DUST_LISTING_FILE      0
 #define DUST_LISTING_DIRECTORY 1
@@ -34,112 +26,13 @@
 int g_dry_run = 0;
 
 /* Returns DUST_OK on success. */
-int extract_file(struct dust_log *log,
-                 struct dust_fingerprint fingerprint,
-                 FILE *outfile,
-                 SHA256_CTX *hash_context)
-{
-  assert(log);
-
-  struct dust_block *block = dust_get(log, fingerprint);
-  assert(block);
-
-  if (dust_block_type(block) == DUST_TYPE_FILEDATA) {
-    uint32_t size = dust_block_size(block);
-    unsigned char *data = dust_block_data(block);
-
-    if (hash_context) {
-      assert(1 == SHA256_Update(hash_context, data, size));
-    }
-
-    if (outfile && (size != fwrite(data, 1, size, outfile))) {
-      fprintf(stderr,
-              "Expected to write %" PRIu32 " bytes of data to outfile, "
-              "but failed. Bailing.\n",
-              size);
-      return !DUST_OK;
-    }
-
-    dust_release(&block);
-    return DUST_OK;
-  }
-
-  if (dust_block_type(block) == DUST_TYPE_FINGERPRINTS) {
-    uint32_t size = dust_block_size(block);
-    unsigned char *fingerprints = dust_block_data(block);
-
-    if (size % DUST_FINGERPRINT_SIZE != 0) {
-      fprintf(stderr,
-              "Expected fingerprints listing block to have a size an integer "
-              "multiple of the size of a fingerprint. Bailing.\n");
-      return !DUST_OK;
-    }
-
-    for (uint32_t i = 0; i < size; i += DUST_FINGERPRINT_SIZE) {
-      struct dust_fingerprint f;
-      memcpy(f.bytes, fingerprints + i, DUST_FINGERPRINT_SIZE);
-      if (DUST_OK != extract_file(log, f, outfile, hash_context)) {
-        fprintf(stderr,
-                "Encountered a problem while extracting a file. Bailing.\n");
-        return !DUST_OK;
-      }
-    }
-
-    dust_release(&block);
-    return DUST_OK;
-  }
-
-  assert(0 && "should not be possible to reach here");
-}
-
-/* Returns DUST_OK on success. */
 int extract_files(struct dust_log *log, char *archive_file)
 {
   assert(log);
   assert(archive_file);
 
-  FILE *archive = fopen(archive_file, "r");
-  if (!archive) {
-    fprintf(stderr,
-            "Failed to open archive file '%s'. Bailing.\n",
-            archive_file);
-    return !DUST_OK;
-  }
-
-  uint32_t magic;
-  assert(1 == fread(&magic, sizeof(magic), 1, archive));
-  magic = ntohl(magic);
-  assert(magic == DUST_MAGIC);
-
-  struct dust_fingerprint f;
-  assert(DUST_FINGERPRINT_SIZE == fread(f.bytes, 1, DUST_FINGERPRINT_SIZE, archive));
-
-  assert(0 == fclose(archive));
-
-  FILE *listing = tmpfile();
-  if (!listing) {
-    fprintf(stderr,
-            "Failed to open temporary file to hold file listing. Bailing.\n");
-    return !DUST_OK;
-  }
-  
-  if (DUST_OK != extract_file(log, f, listing, NULL)) {
-    fprintf(stderr,
-            "Failed to extract file listing. Bailing.\n");
-    assert(0 == fclose(listing));
-    return !DUST_OK;
-  }
-
-  assert(0 == fseek(listing, 0, SEEK_SET));
-
-  assert(1 == fread(&magic, sizeof(magic), 1, listing));
-  magic = ntohl(magic);
-  assert(magic == DUST_MAGIC);
-
-  uint32_t version;
-  assert(1 == fread(&version, sizeof(version), 1, listing));
-  version = ntohl(version);
-  assert(version == DUST_VERSION);
+  FILE *listing = extract_archive_listing(log, archive_file);
+  if (!listing) { exit(1); }
 
   while (1) {
     uint32_t recordtype, pathlen;
