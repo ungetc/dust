@@ -14,7 +14,7 @@ FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
   struct dust_fingerprint f;
 
   assert(archive_infile);
-  
+
   archive = fopen(archive_infile, "r");
   if (!archive) {
     fprintf(stderr,
