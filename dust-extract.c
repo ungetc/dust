@@ -19,6 +19,77 @@
  * files, but perform all other processing normally. */
 int g_dry_run = 0;
 
+int extract_listing_item(struct dust_log *log, struct listing_item item)
+{
+  switch (item.recordtype) {
+  case DUST_LISTING_FILE: {
+    FILE *out = NULL;
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX context;
+
+    assert(1 == SHA256_Init(&context));
+    if (g_verbosity >= 1) {
+      fprintf(stderr, "Extracting file: %s\n", item.path);
+    }
+    if (!g_dry_run) {
+      out = fopen(item.path, "w");
+      assert(out);
+    }
+
+    extract_file(log, item.data.file.expected_fingerprint, out, &context);
+
+    if (!g_dry_run) {
+      assert(0 == fclose(out));
+    }
+    assert(1 == SHA256_Final(hash, &context));
+    if (0 != memcmp(hash, item.data.file.expected_hash, SHA256_DIGEST_LENGTH)) {
+      fprintf(stderr,
+              "Stored and calculated hashes of file don't match; probable "
+              "corruption. Bailing.\n");
+      exit(1);
+    }
+    break;
+  }
+  case DUST_LISTING_DIRECTORY: {
+    if (g_verbosity >= 1) {
+      fprintf(stderr, "Extracting directory: %s\n", item.path);
+    }
+    if (!g_dry_run && (0 != mkdir(item.path, 0755))) {
+      fprintf(stderr, "Failed to create directory. Bailing.\n");
+      exit(1);
+    }
+    break;
+  }
+  case DUST_LISTING_SYMLINK: {
+    if (g_verbosity >= 1) {
+      fprintf(stderr, "Extracting symlink: %s\n", item.path);
+    }
+    if (!g_dry_run && (0 != symlink(item.data.symlink.targetpath, item.path))) {
+      fprintf(stderr,
+              "Failed to create symlink. Bailing.\n");
+      exit(1);
+    }
+    break;
+  }
+  default: {
+    fprintf(stderr,
+            "Encountered invalid listing record type '%" PRIu32 "'\n",
+            item.recordtype);
+    exit(1);
+  }
+  }
+
+  if (!g_dry_run && (0 != lchmod(item.path, item.permissions))) {
+    fprintf(stderr,
+            "Failed to set permissions for '%s' to %" PRIu32 ". Bailing.\n",
+            item.path,
+            item.permissions);
+    exit(1);
+  }
+
+  return DUST_OK;
+}
+
 /* Returns DUST_OK on success. */
 int extract_files(struct dust_log *log, char *archive_file)
 {
@@ -28,116 +99,9 @@ int extract_files(struct dust_log *log, char *archive_file)
   FILE *listing = extract_archive_listing(log, archive_file);
   if (!listing) { exit(1); }
 
-  while (1) {
-    uint32_t recordtype, pathlen;
-    char *path = NULL;
-
-    int c = getc(listing);
-    if (c == EOF) {
-      break;
-    } else {
-      assert(c == ungetc(c, listing));
-    }
-
-    assert(1 == fread(&recordtype, sizeof(recordtype), 1, listing));
-    recordtype = ntohl(recordtype);
-
-    assert(1 == fread(&pathlen, sizeof(pathlen), 1, listing));
-    pathlen = ntohl(pathlen);
-
-    path = malloc(pathlen);
-    assert(path);
-    assert(pathlen == fread(path, 1, pathlen, listing));
-
-    switch (recordtype) {
-    case DUST_LISTING_FILE: {
-      FILE *out = NULL;
-      struct dust_fingerprint f;
-      unsigned char hash[SHA256_DIGEST_LENGTH];
-      unsigned char calculated_hash[SHA256_DIGEST_LENGTH];
-      SHA256_CTX context;
-
-      assert(1 == SHA256_Init(&context));
-      assert(DUST_FINGERPRINT_SIZE == fread(f.bytes, 1, DUST_FINGERPRINT_SIZE, listing));
-      assert(SHA256_DIGEST_LENGTH == fread(hash, 1, SHA256_DIGEST_LENGTH, listing));
-
-      if (g_verbosity >= 1) {
-        fprintf(stderr, "Extracting file: %s\n", path);
-      }
-      if (!g_dry_run) {
-        out = fopen(path, "w");
-        assert(out);
-      }
-      extract_file(log, f, out, &context);
-      if (!g_dry_run) {
-        assert(0 == fclose(out));
-      }
-      assert(1 == SHA256_Final(calculated_hash, &context));
-
-      if (0 != memcmp(hash, calculated_hash, SHA256_DIGEST_LENGTH)) {
-        fprintf(stderr,
-                "Stored and calculated hashes of file don't match; probable "
-                "corruption. Bailing.\n");
-        assert(0 == fclose(listing));
-        return !DUST_OK;
-      }
-      break;
-    }
-    case DUST_LISTING_DIRECTORY: {
-      if (g_verbosity >= 1) {
-        fprintf(stderr, "Extracting directory: %s\n", path);
-      }
-      if (!g_dry_run && (0 != mkdir(path, 0755))) {
-        fprintf(stderr,
-                "Failed to create directory. Bailing.\n");
-        assert(0 == fclose(listing));
-        return !DUST_OK;
-      }
-      break;
-    }
-    case DUST_LISTING_SYMLINK: {
-      uint32_t targetbytes = 0;
-      char *targetpath = NULL;
-
-      assert(1 == fread(&targetbytes, sizeof(targetbytes), 1, listing));
-      targetbytes = ntohl(targetbytes);
-
-      targetpath = malloc(targetbytes);
-      assert(targetpath);
-      assert(targetbytes == fread(targetpath, 1, targetbytes, listing));
-
-      if (g_verbosity >= 1) {
-        fprintf(stderr, "Extracting symlink: %s\n", path);
-      }
-      if (!g_dry_run && (0 != symlink(targetpath, path))) {
-        fprintf(stderr,
-                "Failed to created symlink. Bailing.\n");
-        assert(0 == fclose(listing));
-        free(targetpath);
-        return !DUST_OK;
-      }
-      free(targetpath);
-      break;
-    }
-    default: {
-      assert(0 && "invalid record type in listing");
-    }
-    }
-
-    uint32_t permissions;
-    assert(1 == fread(&permissions, sizeof(permissions), 1, listing));
-    permissions = ntohl(permissions);
-
-    if (!g_dry_run && (0 != lchmod(path, permissions))) {
-      fprintf(stderr,
-              "Failed to set permissions for '%s' to %" PRIu32 "\n. Bailing.\n",
-              path,
-              permissions);
-      assert(0 == fclose(listing));
-      return !DUST_OK;
-    }
-
-    free(path);
+  if (DUST_OK != for_item_in_listing(log, listing, extract_listing_item)) {
+    fprintf(stderr, "Error encountered while extracting listing item. Bailing.\n");
+    exit(1);
   }
 
   return DUST_OK;
