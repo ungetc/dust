@@ -12,5 +12,5 @@
 void *dmalloc(size_t size);
 char *dstrdup(const char *str);
 
-#endif /* DUST_MEMROY_H */
+#endif /* DUST_MEMORY_H */
 
