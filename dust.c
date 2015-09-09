@@ -8,16 +8,15 @@
 
 #define DUST_BIN_BASE "dust-"
 
+#include "memory.h"
+
 char **copy_args(int argc, char **argv)
 {
-  char **new_args = malloc(sizeof(*new_args) * (argc + 1));
+  char **new_args = dmalloc(sizeof(*new_args) * (argc + 1));
   int i = 0;
 
-  assert(new_args);
-
   for (i = 0; i < argc; i++) {
-    new_args[i] = strdup(argv[i]);
-    assert(new_args[i]);
+    new_args[i] = dstrdup(argv[i]);
   }
   new_args[i] = NULL;
 
@@ -28,8 +27,7 @@ int main(int argc, char **argv)
 {
   if (argc >= 2) {
     pid_t pid;
-    char *dust_bin_name = malloc(strlen(DUST_BIN_BASE) + strlen(argv[1]) + 1);
-    assert(dust_bin_name);
+    char *dust_bin_name = dmalloc(strlen(DUST_BIN_BASE) + strlen(argv[1]) + 1);
 
     strcpy(dust_bin_name, DUST_BIN_BASE);
     strcat(dust_bin_name, argv[1]);

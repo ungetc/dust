@@ -7,7 +7,8 @@ CFLAGS=-Iinclude -O2 -std=c99 -Wall -Wextra -Werror
 
 OBJS= \
   dust-internal.o \
-	dust-file-utils.o \
+  dust-file-utils.o \
+  memory.o \
   types.o
 
 BINARIES= \
