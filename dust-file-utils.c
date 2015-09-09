@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 
 #include "dust-file-utils.h"
+#include "memory.h"
 
 FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
 {
@@ -81,8 +82,7 @@ int for_item_in_listing(struct dust_log *log,
     pathlen = ntohl(pathlen);
 
     /* Read path */
-    item.path = malloc(pathlen);
-    assert(item.path);
+    item.path = dmalloc(pathlen);
     assert(pathlen == fread(item.path, 1, pathlen, listing));
 
     switch (item.recordtype) {
@@ -107,8 +107,7 @@ int for_item_in_listing(struct dust_log *log,
       assert(1 == fread(&targetlen, sizeof(targetlen), 1, listing));
       targetlen = ntohl(targetlen);
 
-      item.data.symlink.targetpath = malloc(targetlen);
-      assert(item.data.symlink.targetpath);
+      item.data.symlink.targetpath = dmalloc(targetlen);
       assert(targetlen == fread(item.data.symlink.targetpath,
                                 1,
                                 targetlen,

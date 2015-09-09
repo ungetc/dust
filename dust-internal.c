@@ -11,6 +11,7 @@
 #include <openssl/sha.h>
 
 #include "dust-internal.h"
+#include "memory.h"
 #include "types.h"
 
 /* compile-time assert */
@@ -110,8 +111,7 @@ static int load_existing_index(const char *index_path, struct index *index)
   uint64_t num_buckets = uint64be_to_host(header.num_buckets);
   /* TODO check for overflow when calculating the size of this buffer */
   uint64_t bufsize = sizeof(struct index_header) + (num_buckets * sizeof(struct index_bucket));
-  char *index_buf = malloc(bufsize);
-  assert(index_buf);
+  char *index_buf = dmalloc(bufsize);
 
   memset(index_buf, 0, bufsize);
   memcpy(index_buf, &header, sizeof(header));
@@ -134,8 +134,7 @@ static void init_new_index(struct index *index)
 
   uint64_t default_num_buckets = (4ULL * 1024 * 1024 * 1024) / sizeof(struct index_bucket);
 
-  index->header = malloc(sizeof(struct index_header));
-  assert(index->header);
+  index->header = dmalloc(sizeof(struct index_header));
   index->header->num_buckets = uint64host_to_be(default_num_buckets);
 
   index->buckets = calloc(default_num_buckets, sizeof(struct index_bucket));
@@ -239,13 +238,10 @@ static void add_block_to_arena(struct index *index, FILE *arena, struct arena_bl
 
 struct dust_log *dust_setup(const char *index_path, const char *arena_path)
 {
-  struct dust_log *log = malloc(sizeof *log);
+  struct dust_log *log = dmalloc(sizeof *log);
   int existing_index_loaded = 0;
 
-  assert(log);
-  log->index = malloc(sizeof *log->index);
-  assert(log->index);
-
+  log->index = dmalloc(sizeof *log->index);
   if (load_existing_index(index_path, log->index) != 0) {
     fprintf(stderr, "Unable to load existing index\n");
   } else {
@@ -254,8 +250,7 @@ struct dust_log *dust_setup(const char *index_path, const char *arena_path)
 
   log->arena = fopen(arena_path, "a+");
   assert(log->arena);
-  log->index_path = strdup(index_path);
-  assert(log->index_path);
+  log->index_path = dstrdup(index_path);
 
   {
     int fd = fileno(log->arena);
@@ -492,9 +487,8 @@ struct dust_block *dust_get(struct dust_log *log, struct dust_fingerprint finger
   /* TODO ensure address fits into an off_t, somehow */
   assert(0 == fseeko(log->arena, address, SEEK_SET));
 
-  struct dust_block *result = malloc(sizeof *result);
+  struct dust_block *result = dmalloc(sizeof *result);
 
-  assert(result);
   assert(1 == fread(&result->ablock.header, sizeof(result->ablock.header), 1, log->arena));
 
   size = uint32be_to_host(result->ablock.header.size);
