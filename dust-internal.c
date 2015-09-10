@@ -11,6 +11,7 @@
 #include <openssl/sha.h>
 
 #include "dust-internal.h"
+#include "io.h"
 #include "memory.h"
 #include "types.h"
 
@@ -106,7 +107,7 @@ static int load_existing_index(const char *index_path, struct index *index)
   }
 
   struct index_header header;
-  assert(1 == fread(&header, sizeof(header), 1, index_file));
+  dfread(&header, sizeof(header), 1, index_file);
 
   uint64_t num_buckets = uint64be_to_host(header.num_buckets);
   /* TODO check for overflow when calculating the size of this buffer */
@@ -115,10 +116,10 @@ static int load_existing_index(const char *index_path, struct index *index)
 
   memset(index_buf, 0, bufsize);
   memcpy(index_buf, &header, sizeof(header));
-  assert(num_buckets == fread(index_buf + sizeof(header),
-                              sizeof(struct index_bucket),
-                              num_buckets,
-                              index_file));
+  dfread(index_buf + sizeof(header),
+         sizeof(struct index_bucket),
+         num_buckets,
+         index_file);
 
   index->header = (struct index_header *)index_buf;
   index->buckets = (struct index_bucket *)(index_buf + sizeof(struct index_header));
@@ -229,8 +230,8 @@ static void add_block_to_arena(struct index *index, FILE *arena, struct arena_bl
     assert(foff >= 0);
     address = foff;
 
-    assert(1 == fwrite(&block->header, sizeof(block->header), 1, arena));
-    assert(size == fwrite(block->data, 1, size, arena));
+    dfwrite(&block->header, sizeof(block->header), 1, arena);
+    dfwrite(block->data, 1, size, arena);
     assert(0 == fflush(arena));
     add_fingerprint_to_index(index, block->header.fingerprint, address);
   }
@@ -280,9 +281,9 @@ struct dust_log *dust_setup(const char *index_path, const char *arena_path)
         assert(c == ungetc(c, log->arena));
       }
 
-      assert(1 == fread(&block.header, sizeof(block.header), 1, log->arena));
+      dfread(&block.header, sizeof(block.header), 1, log->arena);
       size = uint32be_to_host(block.header.size);
-      assert(size == fread(block.data, 1, size, log->arena));
+      dfread(block.data, 1, size, log->arena);
 
       assert(SHA256_DIGEST_LENGTH == DUST_FINGERPRINT_SIZE);
       SHA256(block.data, size, calculated_hash);
@@ -314,20 +315,13 @@ void dust_teardown(struct dust_log **log)
     uint64_t expected_offset = 0;
 
     assert(index_file);
-    assert(1 == fwrite((*log)->index->header, sizeof(struct index_header), 1, index_file));
+    dfwrite((*log)->index->header, sizeof(struct index_header), 1, index_file);
 
     offset = ftello(index_file);
     expected_offset += sizeof(struct index_header);
     assert(offset >= 0 && expected_offset == (uint64_t)offset);
 
-    /* I hit a bug on FreeBSD where doing this:
-     *   fwrite(buckets, sizeof(index_bucket), num_buckets, index_file);
-     * would return num_buckets, but write nothing to index_file. To
-     * work around this bug, instead write one bucket at a time, in a
-     * loop. */
-    for (size_t i = 0; i < num_buckets; i++) {
-        assert(1 == fwrite((*log)->index->buckets + i, sizeof(struct index_bucket), 1, index_file));
-    }
+    dfwrite((*log)->index->buckets, sizeof(struct index_bucket), num_buckets, index_file);
 
     offset = ftello(index_file);
     expected_offset += (num_buckets * sizeof(struct index_bucket));
@@ -379,7 +373,7 @@ int dust_check(struct dust_log *log)
     }
 
     if (!end_of_hunk) {
-      assert(1 == fread(&block.header, sizeof(block.header), 1, arena));
+      dfread(&block.header, sizeof(block.header), 1, arena);
 
       /* if it looks like the next header is all zeroes, we're at the
        * end of the current arena hunk; do a sanity check to make sure
@@ -417,17 +411,7 @@ int dust_check(struct dust_log *log)
     }
 
     size = uint32be_to_host(block.header.size);
-    size_t data_bytes_read = fread(block.data, 1, size, arena);
-    if (size != data_bytes_read) {
-      fprintf(stderr,
-              "Expected to read %" PRIu32 " data bytes from arena at offset "
-              "%" PRIu64 ", but could only read %zu.\n",
-              size,
-              arena_offset,
-              data_bytes_read);
-      fprintf(stderr, "Unrecoverable error. Bailing.\n");
-      return !DUST_OK;
-    }
+    dfread(block.data, 1, size, arena);
     arena_offset += size;
 
     assert(SHA256_DIGEST_LENGTH == DUST_FINGERPRINT_SIZE);
@@ -489,10 +473,10 @@ struct dust_block *dust_get(struct dust_log *log, struct dust_fingerprint finger
 
   struct dust_block *result = dmalloc(sizeof *result);
 
-  assert(1 == fread(&result->ablock.header, sizeof(result->ablock.header), 1, log->arena));
+  dfread(&result->ablock.header, sizeof(result->ablock.header), 1, log->arena);
 
   size = uint32be_to_host(result->ablock.header.size);
-  assert(size == fread(result->ablock.data, 1, size, log->arena));
+  dfread(result->ablock.data, 1, size, log->arena);
 
   assert(0 == memcmp(fingerprint.bytes, result->ablock.header.fingerprint, DUST_FINGERPRINT_SIZE));
 

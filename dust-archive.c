@@ -14,6 +14,7 @@
 #include <openssl/sha.h>
 
 #include "dust-internal.h"
+#include "io.h"
 #include "options.h"
 
 #define DUST_VERSION 1
@@ -76,7 +77,7 @@ struct dust_fingerprint add_file(FILE *file,
       return f;
     }
 
-    assert(1 == fwrite(&f, DUST_FINGERPRINT_SIZE, 1, fplisting));
+    dfwrite(&f, DUST_FINGERPRINT_SIZE, 1, fplisting);
     fpcount++;
 
     if (feof(file)) {
@@ -117,16 +118,10 @@ int archive_files(struct dust_log *log)
   }
 
   uint32_t magic = htonl(DUST_MAGIC);
-  if (1 != fwrite(&magic, sizeof(magic), 1, listing)) {
-    fprintf(stderr, "Error while attempting to write to listing. Bailing.\n");
-    return !DUST_OK;
-  }
+  dfwrite(&magic, sizeof(magic), 1, listing);
 
   uint32_t version = htonl(DUST_VERSION);
-  if (1 != fwrite(&version, sizeof(version), 1, listing)) {
-    fprintf(stderr, "Error while attempting to write to listing. Bailing.\n");
-    return !DUST_OK;
-  }
+  dfwrite(&version, sizeof(version), 1, listing);
 
   while (1) {
     struct stat sb;
@@ -169,12 +164,12 @@ int archive_files(struct dust_log *log)
       unsigned char hash[SHA256_DIGEST_LENGTH];
       struct dust_fingerprint f = add_file(file, log, hash, DUST_TYPE_FILEDATA);
 
-      assert(1 == fwrite(&recordtype, sizeof(recordtype), 1, listing));
-      assert(1 == fwrite(&pathbytes, sizeof(pathbytes), 1, listing));
-      assert((size_t)(linelen+1) == fwrite(filename, 1, linelen+1, listing));
-      assert(DUST_FINGERPRINT_SIZE == fwrite(f.bytes, 1, DUST_FINGERPRINT_SIZE, listing));
-      assert(SHA256_DIGEST_LENGTH == fwrite(hash, 1, SHA256_DIGEST_LENGTH, listing));
-      assert(1 == fwrite(&permissions, sizeof(permissions), 1, listing));
+      dfwrite(&recordtype, sizeof(recordtype), 1, listing);
+      dfwrite(&pathbytes, sizeof(pathbytes), 1, listing);
+      dfwrite(filename, 1, linelen+1, listing);
+      dfwrite(f.bytes, 1, DUST_FINGERPRINT_SIZE, listing);
+      dfwrite(hash, 1, SHA256_DIGEST_LENGTH, listing);
+      dfwrite(&permissions, sizeof(permissions), 1, listing);
 
       assert(0 == fclose(file));
       continue;
@@ -188,10 +183,10 @@ int archive_files(struct dust_log *log)
       uint32_t recordtype = htonl(DUST_LISTING_DIRECTORY);
       uint32_t pathbytes = htonl(linelen+1);
 
-      assert(1 == fwrite(&recordtype, sizeof(recordtype), 1, listing));
-      assert(1 == fwrite(&pathbytes, sizeof(pathbytes), 1, listing));
-      assert((size_t)(linelen+1) == fwrite(filename, 1, linelen+1, listing));
-      assert(1 == fwrite(&permissions, sizeof(permissions), 1, listing));
+      dfwrite(&recordtype, sizeof(recordtype), 1, listing);
+      dfwrite(&pathbytes, sizeof(pathbytes), 1, listing);
+      dfwrite(filename, 1, linelen+1, listing);
+      dfwrite(&permissions, sizeof(permissions), 1, listing);
       continue;
     }
 
@@ -217,12 +212,12 @@ int archive_files(struct dust_log *log)
 
       targetbytes = htonl(targetlen + 1); /* include trailing '\0' */
 
-      assert(1 == fwrite(&recordtype, sizeof(recordtype), 1, listing));
-      assert(1 == fwrite(&pathbytes, sizeof(pathbytes), 1, listing));
-      assert((size_t)(linelen+1) == fwrite(filename, 1, linelen+1, listing));
-      assert(1 == fwrite(&targetbytes, sizeof(targetbytes), 1, listing));
-      assert((size_t)(targetlen+1) == fwrite(targetpath, 1, targetlen+1, listing));
-      assert(1 == fwrite(&permissions, sizeof(permissions), 1, listing));
+      dfwrite(&recordtype, sizeof(recordtype), 1, listing);
+      dfwrite(&pathbytes, sizeof(pathbytes), 1, listing);
+      dfwrite(filename, 1, linelen+1, listing);
+      dfwrite(&targetbytes, sizeof(targetbytes), 1, listing);
+      dfwrite(targetpath, 1, targetlen+1, listing);
+      dfwrite(&permissions, sizeof(permissions), 1, listing);
       continue;
     }
 
@@ -242,8 +237,8 @@ int archive_files(struct dust_log *log)
 
   struct dust_fingerprint f = add_file(listing, log, NULL, DUST_TYPE_FILEDATA);
 
-  assert(1 == fwrite(&magic, sizeof(magic), 1, stdout));
-  assert(DUST_FINGERPRINT_SIZE == fwrite(f.bytes, 1, DUST_FINGERPRINT_SIZE, stdout));
+  dfwrite(&magic, sizeof(magic), 1, stdout);
+  dfwrite(f.bytes, 1, DUST_FINGERPRINT_SIZE, stdout);
   assert(0 == fclose(listing));
 
   return DUST_OK;

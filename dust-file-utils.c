@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 
 #include "dust-file-utils.h"
+#include "io.h"
 #include "memory.h"
 
 FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
@@ -25,8 +26,8 @@ FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
   }
 
   /* read and parse archive file */
-  assert(1 == fread(&magic, sizeof(magic), 1, archive));
-  assert(DUST_FINGERPRINT_SIZE == fread(f.bytes, 1, DUST_FINGERPRINT_SIZE, archive));
+  dfread(&magic, sizeof(magic), 1, archive);
+  dfread(f.bytes, 1, DUST_FINGERPRINT_SIZE, archive);
   assert(0 == fclose(archive));
   assert(ntohl(magic) == DUST_MAGIC);
 
@@ -46,8 +47,8 @@ FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
   }
 
   assert(0 == fseek(listing, 0, SEEK_SET));
-  assert(1 == fread(&magic, sizeof(magic), 1, listing));
-  assert(1 == fread(&version, sizeof(version), 1, listing));
+  dfread(&magic, sizeof(magic), 1, listing);
+  dfread(&version, sizeof(version), 1, listing);
   assert(ntohl(magic) == DUST_MAGIC);
   assert(ntohl(version) == DUST_VERSION);
 
@@ -76,25 +77,25 @@ int for_item_in_listing(struct dust_log *log,
     }
 
     /* Read record type and path length */
-    assert(1 == fread(&item.recordtype, sizeof(item.recordtype), 1, listing));
-    assert(1 == fread(&pathlen, sizeof(pathlen), 1, listing));
+    dfread(&item.recordtype, sizeof(item.recordtype), 1, listing);
+    dfread(&pathlen, sizeof(pathlen), 1, listing);
     item.recordtype = ntohl(item.recordtype);
     pathlen = ntohl(pathlen);
 
     /* Read path */
     item.path = dmalloc(pathlen);
-    assert(pathlen == fread(item.path, 1, pathlen, listing));
+    dfread(item.path, 1, pathlen, listing);
 
     switch (item.recordtype) {
     case DUST_LISTING_FILE: {
-      assert(1 == fread(&item.data.file.expected_fingerprint,
-                        DUST_FINGERPRINT_SIZE,
-                        1,
-                        listing));
-      assert(SHA256_DIGEST_LENGTH == fread(item.data.file.expected_hash,
-                                           1,
-                                           SHA256_DIGEST_LENGTH,
-                                           listing));
+      dfread(&item.data.file.expected_fingerprint,
+             DUST_FINGERPRINT_SIZE,
+             1,
+             listing);
+      dfread(item.data.file.expected_hash,
+             1,
+             SHA256_DIGEST_LENGTH,
+             listing);
       break;
     }
     case DUST_LISTING_DIRECTORY: {
@@ -104,14 +105,14 @@ int for_item_in_listing(struct dust_log *log,
     case DUST_LISTING_SYMLINK: {
       uint32_t targetlen = 0;
 
-      assert(1 == fread(&targetlen, sizeof(targetlen), 1, listing));
+      dfread(&targetlen, sizeof(targetlen), 1, listing);
       targetlen = ntohl(targetlen);
 
       item.data.symlink.targetpath = dmalloc(targetlen);
-      assert(targetlen == fread(item.data.symlink.targetpath,
-                                1,
-                                targetlen,
-                                listing));
+      dfread(item.data.symlink.targetpath,
+             1,
+             targetlen,
+             listing);
       break;
     }
     default: {
@@ -119,7 +120,7 @@ int for_item_in_listing(struct dust_log *log,
     }
     }
 
-    assert(1 == fread(&item.permissions, sizeof(item.permissions), 1, listing));
+    dfread(&item.permissions, sizeof(item.permissions), 1, listing);
     item.permissions = ntohl(item.permissions);
 
     if (DUST_OK != callback(log, item)) {
@@ -153,12 +154,8 @@ int extract_file(struct dust_log *log,
       assert(1 == SHA256_Update(hash_context, data, size));
     }
 
-    if (outfile && (size != fwrite(data, 1, size, outfile))) {
-      fprintf(stderr,
-              "Expected to write %" PRIu32 " bytes of data to outfile, "
-              "but failed. Bailing.\n",
-              size);
-      return !DUST_OK;
+    if (outfile) {
+      dfwrite(data, 1, size, outfile);
     }
 
     dust_release(&block);
