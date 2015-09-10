@@ -442,7 +442,14 @@ struct dust_fingerprint dust_put(struct dust_log *log, unsigned char *data, uint
   assert(data);
   assert(size <= sizeof(block.data));
 
-  time_t curtime = time(NULL);
+  const char *fake_curtime = getenv("DUST_FAKE_TIMESTAMP");
+  time_t curtime = (time_t)-1;
+
+  if (fake_curtime) {
+    curtime = atoi(fake_curtime);
+  } else {
+    curtime = time(NULL);
+  }
   assert(curtime != (time_t)-1);
 
   SHA256(data, size, block.header.fingerprint);
