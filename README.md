@@ -22,6 +22,10 @@ The Makefile should work with at least GNU make and FreeBSD's make. To build:
 
     make all
 
+To run the (still diminutive) testsuite:
+
+    make testsuite
+
 To install:
 
     make install
