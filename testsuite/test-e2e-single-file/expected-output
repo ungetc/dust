@@ -1,0 +1,14 @@
+------------------------
+Filesystem after dry run
+------------------------
+.
+---------------------------
+Filesystem after extraction
+---------------------------
+.
+./foobar
+SHA512 of dust index: aa2182ffaf779cf2f16cdc89c95674e1c98344aacb0c3e8c7a7519425e5dc8160bd17e45ea1acc1f890cb3e8ec47f14b3d91e23d6a4536af6ba2930ae50c34a7
+SHA512 of dust arena: dba071e3abbafbbbbd969725aa8ad0d808aaa0d332f362a8c1791769bed5c3cfa243d86e074873292af759c54335d9be898273319984fb678c8892f9e7724a88
+SHA512 of dust archive file: 0d903e819e6719002f07dfb016d396a101f5c1ebf6892067f5dcc77653ff0633e0eaa81782e8a7e1f71b381383f69758c892a27e6285a7eac919407efe6537a7
+SHA512 of original foobar file: e1788d29ba62486f70a3f41046f67cce3aa0a59a3fe18fb157635863836ecea27ffbc7ce3de66b777518b84afd363a12d863c0a4f21c054e60242c676fcd034b
+SHA512 of extracted foobar file: e1788d29ba62486f70a3f41046f67cce3aa0a59a3fe18fb157635863836ecea27ffbc7ce3de66b777518b84afd363a12d863c0a4f21c054e60242c676fcd034b

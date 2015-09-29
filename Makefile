@@ -19,12 +19,15 @@ BINARIES= \
   dust-extract \
   dust-listing
 
-.PHONY: clean all install
+.PHONY: clean all testsuite install
 
 all: $(BINARIES)
 
 clean:
 	rm -f $(BINARIES) $(OBJS)
+
+testsuite: all
+	cd testsuite && ./run-tests.sh
 
 install: all
 	install -m 755 -d $(PREFIX)/bin/
