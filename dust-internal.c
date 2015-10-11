@@ -237,6 +237,48 @@ static void add_block_to_arena(struct index *index, FILE *arena, struct arena_bl
   }
 }
 
+static void fast_sanity_check_arena(FILE *arena)
+{
+  int fd = -1;
+  uint64_t hunks_in_arena = 0;
+  struct stat sb;
+
+  assert(arena);
+  fd = fileno(arena);
+  assert(0 == fstat(fd, &sb));
+  hunks_in_arena = sb.st_size / ARENA_HUNK_SIZE;
+  assert(0 == fseeko(arena, hunks_in_arena * ARENA_HUNK_SIZE, SEEK_SET));
+
+  while (1) {
+    /* Starting from the beginning of our current arena hunk,
+     * read each data block in turn, confirm it's the right size,
+     * and confirm its fingerprint matches its contents.
+     * This gives us a limited form of self-synchronization -- we
+     * don't need to re-parse the entire arena in order to confirm
+     * the most recent write wasn't cut off somehow. */
+    struct arena_block block;
+    uint32_t size = 0;
+    unsigned char calculated_hash[SHA256_DIGEST_LENGTH];
+    int c;
+
+    if (sb.st_size % ARENA_HUNK_SIZE == 0) break;
+    c = getc(arena);
+    if (c == EOF) {
+      break;
+    } else {
+      assert(c == ungetc(c, arena));
+    }
+
+    dfread(&block.header, sizeof(block.header), 1, arena);
+    size = uint32be_to_host(block.header.size);
+    dfread(block.data, 1, size, arena);
+
+    assert(SHA256_DIGEST_LENGTH == DUST_FINGERPRINT_SIZE);
+    SHA256(block.data, size, calculated_hash);
+    assert(0 == memcmp(block.header.fingerprint, calculated_hash, DUST_FINGERPRINT_SIZE));
+  }
+}
+
 struct dust_log *dust_setup(const char *index_path, const char *arena_path)
 {
   struct dust_log *log = dmalloc(sizeof *log);
@@ -253,51 +295,19 @@ struct dust_log *dust_setup(const char *index_path, const char *arena_path)
   assert(log->arena);
   log->index_path = dstrdup(index_path);
 
-  {
-    int fd = fileno(log->arena);
-    struct stat sb;
-    assert(0 == fstat(fd, &sb));
+  fast_sanity_check_arena(log->arena);
 
-    uint64_t hunks_in_arena = sb.st_size / ARENA_HUNK_SIZE;
-    assert(0 == fseeko(log->arena, hunks_in_arena * ARENA_HUNK_SIZE, SEEK_SET));
+  struct stat sb;
+  int fd = fileno(log->arena);
+  assert(0 == fstat(fd, &sb));
 
-    while (1) {
-      /* Starting from the beginning of our current arena hunk,
-       * read each data block in turn, confirm it's the right size,
-       * and confirm its fingerprint matches its contents.
-       * This gives us a limited form of self-synchronization -- we
-       * don't need to re-parse the entire arena in order to confirm
-       * the most recent write wasn't cut off somehow. */
-      struct arena_block block;
-      uint32_t size = 0;
-      unsigned char calculated_hash[SHA256_DIGEST_LENGTH];
-
-      if (sb.st_size % ARENA_HUNK_SIZE == 0) break;
-
-      int c = getc(log->arena);
-      if (c == EOF) {
-        break;
-      } else {
-        assert(c == ungetc(c, log->arena));
-      }
-
-      dfread(&block.header, sizeof(block.header), 1, log->arena);
-      size = uint32be_to_host(block.header.size);
-      dfread(block.data, 1, size, log->arena);
-
-      assert(SHA256_DIGEST_LENGTH == DUST_FINGERPRINT_SIZE);
-      SHA256(block.data, size, calculated_hash);
-      assert(0 == memcmp(block.header.fingerprint, calculated_hash, DUST_FINGERPRINT_SIZE));
-    };
-
-    if (sb.st_size == 0) {
-      if (!existing_index_loaded) {
-        fprintf(stderr, "creating new index...\n");
-        init_new_index(log->index);
-      }
-    } else {
-      assert(existing_index_loaded == 1);
+  if (sb.st_size == 0) {
+    if (!existing_index_loaded) {
+      fprintf(stderr, "creating new index...\n");
+      init_new_index(log->index);
     }
+  } else {
+    assert(existing_index_loaded == 1);
   }
 
   return log;
