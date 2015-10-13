@@ -346,36 +346,32 @@ void dust_teardown(struct dust_log **log)
   *log = NULL;
 }
 
-int dust_check(struct dust_log *log)
+/* Returns DUST_OK if iteration was completed successfully.
+ * Callback must return DUST_OK if it successfully processed its block,
+ * and !DUST_OK if it failed for some reason.
+ */
+static int for_block_in_arena(FILE *arena,
+                              int callback(struct arena_block block))
 {
-  struct index *index = NULL;
-  FILE *arena = NULL;
   struct arena_block_header zero_header;
   uint64_t arena_offset = 0;
   int rv = DUST_OK;
 
-  assert(log);
-  assert(log->index);
-  assert(log->arena);
-
-  index = log->index;
-  arena = log->arena;
-
+  assert(arena);
   assert(0 == fseeko(arena, 0, SEEK_SET));
-
   memset(&zero_header, 0, sizeof(zero_header));
 
   while (1) {
     struct arena_block block;
-    uint32_t size = 0;
-    unsigned char calculated_hash[SHA256_DIGEST_LENGTH];
+    uint32_t block_size = 0;
     int end_of_hunk = 0;
+    int ch;
 
-    int c = getc(arena);
-    if (c == EOF) {
-      return DUST_OK;
+    ch = getc(arena);
+    if (ch == EOF) {
+      return rv;
     } else {
-      assert(c == ungetc(c, arena));
+      assert(ch == ungetc(ch, arena));
     }
 
     if ((arena_offset % ARENA_HUNK_SIZE) + sizeof(block.header) > ARENA_HUNK_SIZE) {
@@ -410,36 +406,63 @@ int dust_check(struct dust_log *log)
           fprintf(stderr,
                   "Arena hunk trailer byte at location %" PRIu64 " == %d; expected 0.\n",
                   arena_offset,
-                  (int)byte);
+                  byte);
           rv = !DUST_OK;
         }
       }
 
-      /* We've hit the end of the current arena hunk; move onto processing the
-       * next data block. */
+      /* We've hit the end of the current arena hunk; move onto processing the next
+       * data block. */
       continue;
     }
 
-    size = uint32be_to_host(block.header.size);
-    dfread(block.data, 1, size, arena);
-    arena_offset += size;
+    block_size = uint32be_to_host(block.header.size);
+    dfread(block.data, 1, block_size, arena);
+    arena_offset += block_size;
 
-    assert(SHA256_DIGEST_LENGTH == DUST_FINGERPRINT_SIZE);
-    SHA256(block.data, size, calculated_hash);
-    if (memcmp(block.header.fingerprint, calculated_hash, DUST_FINGERPRINT_SIZE) != 0) {
-      fprintf(stderr,
-              "For block at offset %" PRIu64 ", expected fingerprint ",
-              arena_offset);
-      fprint_fingerprint(stderr, block.header.fingerprint);
-      fprintf(stderr,
-              " but data hashes to fingerprint ");
-      fprint_fingerprint(stderr, calculated_hash);
-      fprintf(stderr, "\n");
-      rv = !DUST_OK;
-    }
+    rv = (callback(block) == DUST_OK ? rv : !DUST_OK);
   }
 
   return rv;
+}
+
+static int arena_block_fingerprint_matches_contents(struct arena_block block)
+{
+  unsigned char calculated_hash[SHA256_DIGEST_LENGTH];
+  uint32_t size = 0;
+
+  assert(SHA256_DIGEST_LENGTH == DUST_FINGERPRINT_SIZE);
+  size = uint32be_to_host(block.header.size);
+  SHA256(block.data, size, calculated_hash);
+
+  if (memcmp(block.header.fingerprint, calculated_hash, DUST_FINGERPRINT_SIZE) != 0) {
+    fprintf(stderr, "%s:%d: Block fingerprint is ", __FILE__, __LINE__);
+    fprint_fingerprint(stderr, block.header.fingerprint);
+    fprintf(stderr, " but contents hash to ");
+    fprint_fingerprint(stderr, calculated_hash);
+    fprintf(stderr, "\n");
+    return !DUST_OK;
+  }
+
+  return DUST_OK;
+}
+
+int dust_check(struct dust_log *log)
+{
+  int rv = DUST_OK;
+
+  assert(log);
+  assert(log->index);
+  assert(log->arena);
+
+  rv = for_block_in_arena(log->arena, arena_block_fingerprint_matches_contents);
+
+  if (rv != DUST_OK) {
+    fprintf(stderr, "Errors encountered during check.\n");
+    return !DUST_OK;
+  }
+
+  return DUST_OK;
 }
 
 struct dust_fingerprint dust_put(struct dust_log *log, unsigned char *data, uint32_t size, uint32_t type)
