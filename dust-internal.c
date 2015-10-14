@@ -313,6 +313,20 @@ struct dust_log *dust_setup(const char *index_path, const char *arena_path)
   return log;
 }
 
+static void fwrite_index(FILE *stream, struct index *index)
+{
+  uint64_t num_buckets = 0;
+
+  assert(index);
+  assert(index->header);
+  assert(index->buckets);
+  assert(stream);
+
+  num_buckets = uint64be_to_host(index->header->num_buckets);
+  dfwrite(index->header, sizeof(struct index_header), 1, stream);
+  dfwrite(index->buckets, sizeof(struct index_bucket), num_buckets, stream);
+}
+
 void dust_teardown(struct dust_log **log)
 {
   assert(log);
@@ -320,23 +334,8 @@ void dust_teardown(struct dust_log **log)
 
   if (g_index_dirtied) {
     FILE *index_file = fopen((*log)->index_path, "w");
-    uint64_t num_buckets = uint64be_to_host((*log)->index->header->num_buckets);
-    off_t offset = 0;
-    uint64_t expected_offset = 0;
-
     assert(index_file);
-    dfwrite((*log)->index->header, sizeof(struct index_header), 1, index_file);
-
-    offset = ftello(index_file);
-    expected_offset += sizeof(struct index_header);
-    assert(offset >= 0 && expected_offset == (uint64_t)offset);
-
-    dfwrite((*log)->index->buckets, sizeof(struct index_bucket), num_buckets, index_file);
-
-    offset = ftello(index_file);
-    expected_offset += (num_buckets * sizeof(struct index_bucket));
-    assert(offset >= 0 && expected_offset == (uint64_t)offset);
-
+    fwrite_index(index_file, (*log)->index);
     assert(0 == fclose(index_file));
   }
 
