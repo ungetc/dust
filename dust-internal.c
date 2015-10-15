@@ -348,9 +348,11 @@ void dust_teardown(struct dust_log **log)
 /* Returns DUST_OK if iteration was completed successfully.
  * Callback must return DUST_OK if it successfully processed its block,
  * and !DUST_OK if it failed for some reason.
+ * "offset" is the byte position of the block in the arena.
  */
 static int for_block_in_arena(FILE *arena,
-                              int callback(struct arena_block block))
+                              int callback(struct arena_block block, off_t offset, void *data),
+                              void *data)
 {
   struct arena_block_header zero_header;
   uint64_t arena_offset = 0;
@@ -419,16 +421,20 @@ static int for_block_in_arena(FILE *arena,
     dfread(block.data, 1, block_size, arena);
     arena_offset += block_size;
 
-    rv = (callback(block) == DUST_OK ? rv : !DUST_OK);
+    off_t block_start_offset = arena_offset - block_size - sizeof(block.header);
+    rv = (callback(block, block_start_offset, data) == DUST_OK ? rv : !DUST_OK);
   }
 
   return rv;
 }
 
-static int arena_block_fingerprint_matches_contents(struct arena_block block)
+static int arena_block_fingerprint_matches_contents(struct arena_block block, off_t offset, void *data)
 {
   unsigned char calculated_hash[SHA256_DIGEST_LENGTH];
   uint32_t size = 0;
+
+  (void)offset;
+  (void)data;
 
   assert(SHA256_DIGEST_LENGTH == DUST_FINGERPRINT_SIZE);
   size = uint32be_to_host(block.header.size);
@@ -454,7 +460,7 @@ int dust_check(struct dust_log *log)
   assert(log->index);
   assert(log->arena);
 
-  rv = for_block_in_arena(log->arena, arena_block_fingerprint_matches_contents);
+  rv = for_block_in_arena(log->arena, arena_block_fingerprint_matches_contents, NULL);
 
   if (rv != DUST_OK) {
     fprintf(stderr, "Errors encountered during check.\n");
