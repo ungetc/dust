@@ -1,9 +1,11 @@
+include personal.mk
+
 # Install directory. Binaries will go in $PREFIX/bin,
 # manpages in $PREFIX/man, and so on.
 PREFIX=$$HOME/opt/`uname`.`uname -m`
 
 LDFLAGS=-lcrypto
-CFLAGS=-Iinclude -O2 -std=c99 -Wall -Wextra -Werror
+CFLAGS=-Iinclude -O2 -std=c99 -Wall -Wextra
 
 OBJS= \
   dust-internal.o \
@@ -33,8 +35,12 @@ install: all
 	install -m 755 -d $(PREFIX)/bin/
 	install -m 755 $(BINARIES) $(PREFIX)/bin/
 
+.SUFFIXES: .c .o
+.c.o:
+	$(CC) -c $(CFLAGS) $(PERSONAL_CFLAGS) $< -o $@
+
 build-binary: $(BINARY_NAME).c $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(BINARY_NAME).c $(OBJS) -o $(BINARY_NAME)
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(BINARY_NAME).c $(OBJS) -o $(BINARY_NAME)
 
 $(BINARIES):
 	$(MAKE) BINARY_NAME=$@ build-binary
