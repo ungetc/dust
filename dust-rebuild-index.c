@@ -9,7 +9,7 @@ int main(int argc, char **argv)
   char *arena = getenv("DUST_ARENA"), *new_index_path = NULL;
   int rv = 0;
 
-  if (argc == 2) {
+  if (argc != 2) {
     fprintf(stderr, "Usage: dust-rebuild-index <new-index-file>\n");
     exit(2);
   }
