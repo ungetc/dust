@@ -23,7 +23,7 @@ BINARIES= \
 
 .PHONY: clean all testsuite install
 
-all: $(BINARIES)
+all: .git/hooks/pre-commit $(BINARIES)
 
 clean:
 	rm -f $(BINARIES) $(OBJS)
@@ -34,6 +34,9 @@ testsuite: all
 install: all
 	install -m 755 -d $(PREFIX)/bin/
 	install -m 755 $(BINARIES) $(PREFIX)/bin/
+
+.git/hooks/pre-commit: hooks/pre-commit
+	cp $? $@
 
 .SUFFIXES: .c .o
 .c.o:

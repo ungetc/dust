@@ -1,0 +1,8 @@
+#!/bin/sh
+
+if git diff --cached --name-only | grep '^personal.mk$' >/dev/null; then
+  echo "personal.mk is to be modified only locally."
+  echo "Changes to it should not be committed."
+  exit 1
+fi
+
