@@ -25,6 +25,14 @@ void dust_teardown(struct dust_log **log);
  */
 int dust_check(struct dust_log *log);
 
+/* Scans the specified arena, and produces a new index file at the specified
+ * path. To minimize the chance of accidentally overwriting an existing index,
+ * new_index_path must not be the same as the value of the DUST_INDEX envvar.
+ * Returns DUST_OK if the rebuild completes successfully, and some other value
+ * otherwise.
+ */
+int dust_rebuild_index(const char *arena_path, const char *new_index_path);
+
 struct dust_fingerprint dust_put(struct dust_log *log, unsigned char *data, uint32_t size, uint32_t type);
 struct dust_block *dust_get(struct dust_log *log, struct dust_fingerprint fingerprint);
 void dust_release(struct dust_block **block);

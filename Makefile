@@ -19,7 +19,8 @@ BINARIES= \
   dust-check \
   dust-archive \
   dust-extract \
-  dust-listing
+  dust-listing \
+  dust-rebuild-index
 
 .PHONY: clean all testsuite install
 
