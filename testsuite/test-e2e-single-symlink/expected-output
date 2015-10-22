@@ -1,0 +1,14 @@
+------------------------
+Filesystem after dry run
+------------------------
+.
+---------------------------
+Filesystem after extraction
+---------------------------
+.
+./bar
+--------------------------------
+Destination of extracted symlink
+--------------------------------
+foo
+SHA512 of dust archive file: 80d88d4fdb0da2c6f046c44fbb5078eb9ea2db6b34d822e294bba468345373e7293c95737cc5c68c17a785e12205e7a4fa1aa70b4b56d2cd0e94ed3f8c7eede4
