@@ -20,8 +20,6 @@ setup() {
   export RAW_OUTPUT="$TEST_DIR/raw-output"
   export EXPECTED_OUTPUT="$ORIG_PWD/expected-output"
 
-  export DUST_ARENA="$TEST_DIR/arena"
-  export DUST_INDEX="$TEST_DIR/index"
   export DUST_FAKE_TIMESTAMP=0
 
   rm -rf "$TEST_DIR"
