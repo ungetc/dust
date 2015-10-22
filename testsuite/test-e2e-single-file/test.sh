@@ -20,8 +20,6 @@ find . >> "$RAW_OUTPUT"
 banner "Filesystem after extraction" >> "$RAW_OUTPUT"
 find . >> "$RAW_OUTPUT"
 
-echo "SHA512 of dust index: `sha512 $DUST_INDEX`" >> "$RAW_OUTPUT"
-echo "SHA512 of dust arena: `sha512 $DUST_ARENA`" >> "$RAW_OUTPUT"
 echo "SHA512 of dust archive file: `sha512 $TEST_DIR/archive.dust`" >> "$RAW_OUTPUT"
 echo "SHA512 of original foobar file: `sha512 $ORIG_PWD/foobar`" >> "$RAW_OUTPUT"
 echo "SHA512 of extracted foobar file: `sha512 foobar`" >> "$RAW_OUTPUT"
