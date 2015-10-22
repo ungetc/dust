@@ -20,6 +20,12 @@ setup() {
   export RAW_OUTPUT="$TEST_DIR/raw-output"
   export EXPECTED_OUTPUT="$ORIG_PWD/expected-output"
 
+  if test -z "`env | grep '^DUST_ARENA='`"; then
+    export DUST_ARENA="$TEST_TMPDIR/arena"
+  fi
+  if test -z "`env | grep '^DUST_INDEX='`"; then
+    export DUST_INDEX="$TEST_TMPDIR/index"
+  fi
   export DUST_FAKE_TIMESTAMP=0
 
   rm -rf "$TEST_DIR"
