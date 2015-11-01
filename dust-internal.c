@@ -106,23 +106,14 @@ static int load_existing_index(const char *index_path, struct index *index)
     return -1;
   }
 
-  struct index_header header;
-  dfread(&header, sizeof(header), 1, index_file);
+  index->header = dmalloc(sizeof(*index->header));
+  dfread(index->header, sizeof(*index->header), 1, index_file);
 
-  uint64_t num_buckets = uint64be_to_host(header.num_buckets);
+  uint64_t num_buckets = uint64be_to_host(index->header->num_buckets);
+
   /* TODO check for overflow when calculating the size of this buffer */
-  uint64_t bufsize = sizeof(struct index_header) + (num_buckets * sizeof(struct index_bucket));
-  char *index_buf = dmalloc(bufsize);
-
-  memset(index_buf, 0, bufsize);
-  memcpy(index_buf, &header, sizeof(header));
-  dfread(index_buf + sizeof(header),
-         sizeof(struct index_bucket),
-         num_buckets,
-         index_file);
-
-  index->header = (struct index_header *)index_buf;
-  index->buckets = (struct index_bucket *)(index_buf + sizeof(struct index_header));
+  index->buckets = dmalloc(num_buckets * sizeof(*index->buckets));
+  dfread(index->buckets, sizeof(*index->buckets), num_buckets, index_file);
 
   assert(0 == fclose(index_file));
 
@@ -340,6 +331,8 @@ void dust_teardown(struct dust_log **log)
   }
 
   assert(0 == fclose((*log)->arena));
+  free((*log)->index->header);
+  free((*log)->index->buckets);
   free((*log)->index);
   free(*log);
   *log = NULL;
@@ -498,6 +491,8 @@ int dust_rebuild_index(const char *arena_path, const char *new_index_path)
   fwrite_index(new_index_file, index);
   assert(0 == fclose(new_index_file));
   assert(0 == fclose(arena));
+  free(index->header);
+  free(index->buckets);
   free(index);
 
   return DUST_OK;
