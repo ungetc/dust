@@ -76,11 +76,10 @@ struct dust_block {
 };
 
 struct index {
+  int dirtied;
   struct index_header *header;
   struct index_bucket *buckets; /* array of header->num_buckets buckets */
 };
-
-int g_index_dirtied = 0;
 
 static void fprint_fingerprint(FILE *out, const unsigned char *fingerprint)
 {
@@ -105,6 +104,7 @@ static int load_existing_index(const char *index_path, struct index *index)
     fprintf(stderr, "Unable to open file '%s' for reading.\n", index_path);
     return -1;
   }
+  index->dirtied = 0;
 
   index->header = dmalloc(sizeof(*index->header));
   dfread(index->header, sizeof(*index->header), 1, index_file);
@@ -133,7 +133,7 @@ static void init_new_index(struct index *index)
   assert(index->buckets);
   memset(index->buckets, 0, default_num_buckets * sizeof(struct index_bucket));
 
-  g_index_dirtied = 1;
+  index->dirtied = 1;
 }
 
 static uint64_t index_bucket_expected_to_contain_fingerprint(struct index *index, unsigned char *fingerprint)
@@ -192,7 +192,7 @@ static void add_fingerprint_to_index(struct index *index, unsigned char *fingerp
   b->entries[num_entries].address = uint64host_to_be(offset);
   b->num_entries = uint32host_to_be(num_entries + 1);
 
-  g_index_dirtied = 1;
+  index->dirtied = 1;
 }
 
 static void add_block_to_arena(struct index *index, FILE *arena, struct arena_block *block)
@@ -323,7 +323,7 @@ void dust_teardown(struct dust_log **log)
   assert(log);
   assert(*log);
 
-  if (g_index_dirtied) {
+  if ((*log)->index->dirtied) {
     FILE *index_file = fopen((*log)->index_path, "w");
     assert(index_file);
     fwrite_index(index_file, (*log)->index);
