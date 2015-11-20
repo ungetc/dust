@@ -1,12 +1,17 @@
 #include <assert.h>
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <openssl/sha.h>
 
@@ -66,7 +71,7 @@ struct arena_block {
 ct_assert(sizeof (struct arena_block) == sizeof (struct arena_block_header) + DUST_DATA_BLOCK_SIZE);
 
 struct dust_log {
-  struct index *index;
+  struct dust_index *index;
   FILE *arena;
   char *index_path;
 };
@@ -75,8 +80,18 @@ struct dust_block {
   struct arena_block ablock;
 };
 
-struct index {
+struct dust_arena {
+  FILE *stream;
+};
+
+struct dust_index {
   int dirtied;
+  int mmapped;
+  int writable;
+  union {
+    int mmapped_fd;
+    char *stdio_pathname;
+  } file_data;
   struct index_header *header;
   struct index_bucket *buckets; /* array of header->num_buckets buckets */
 };
@@ -92,8 +107,167 @@ static void fprint_fingerprint(FILE *out, const unsigned char *fingerprint)
   }
 }
 
+/* index must be a valid pointer to a dust_index object.
+ * fd must be a rw file descriptor open on an empty file to be used for an index
+ * Returns DUST_OK on success, and some other value on failure.
+ */
+static int init_and_mmap_index_from_fd(int fd, dust_index *index, int mmap_prot, int num_buckets)
+{
+  uint64_t default_index_size = sizeof(*index->header)
+                              + num_buckets * sizeof(*index->buckets);
+
+  assert(index);
+  index->header = MAP_FAILED;
+  index->buckets = MAP_FAILED;
+
+  if (ftruncate(fd, default_index_size) != 0) {
+    goto fail;
+  }
+  if (lseek(fd, 0, SEEK_SET) != 0) {
+    goto fail;
+  }
+
+  index->header = mmap(
+    NULL,
+    sizeof *index->header,
+    mmap_prot,
+    MAP_SHARED,
+    fd,
+    0
+  );
+  if (index->header == MAP_FAILED) {
+    goto fail;
+  }
+
+  memset(index->header, 0, sizeof *index->header);
+  index->header->num_buckets = uint64host_to_be(num_buckets);
+
+  index->buckets = mmap(
+    NULL,
+    num_buckets * sizeof(*index->buckets),
+    mmap_prot,
+    MAP_SHARED,
+    fd,
+    sizeof *index->header
+  );
+  if (index->buckets == MAP_FAILED) {
+    goto fail;
+  }
+  memset(index->buckets, 0, num_buckets * sizeof(*index->buckets));
+
+  index->dirtied = 1;
+  index->mmapped = 1;
+  index->file_data.mmapped_fd = fd;
+
+  return DUST_OK;
+
+fail:
+  if (index->header != MAP_FAILED) {
+    assert(munmap(index->header, sizeof *index->header) == 0);
+  }
+  if (index->buckets != MAP_FAILED) {
+    assert(munmap(index->buckets, num_buckets * sizeof(*index->buckets)) == 0);
+  }
+  return !DUST_OK;
+}
+
+/* index must be a valid pointer to a dust_index object.
+ * fd must be a readable file descriptor open on an index file
+ * Returns DUST_OK on success, and some other value on failure.
+ */
+static int mmap_existing_index_from_fd(int fd, dust_index *index, int mmap_prot)
+{
+  uint64_t num_buckets = 0;
+
+  assert(index);
+  index->header = MAP_FAILED;
+  index->buckets = MAP_FAILED;
+
+  index->header = mmap(
+    NULL,
+    sizeof *index->header,
+    mmap_prot,
+    MAP_SHARED,
+    fd,
+    0
+  );
+  if (index->header == MAP_FAILED) {
+    goto fail;
+  }
+
+  num_buckets = uint64be_to_host(index->header->num_buckets);
+
+  index->buckets = mmap(
+    NULL,
+    num_buckets * sizeof(*index->buckets),
+    mmap_prot,
+    MAP_SHARED,
+    fd,
+    sizeof *index->header
+  );
+  if (index->buckets == MAP_FAILED) {
+    goto fail;
+  }
+
+  index->dirtied = 0;
+  index->mmapped = 1;
+  index->file_data.mmapped_fd = fd;
+
+  return DUST_OK;
+
+fail:
+  if (index->header != MAP_FAILED) {
+    assert(munmap(index->header, sizeof *index->header) == 0);
+  }
+  if (index->buckets != MAP_FAILED) {
+    assert(munmap(index->buckets, num_buckets * sizeof(*index->buckets)) == 0);
+  }
+  return !DUST_OK;
+}
+
+/* index must be a valid pointer to a dust_index object.
+ * stream must be a readable FILE* open on an index file
+ * Returns DUST_OK on success, and some other value on failure.
+ */
+static int load_existing_index_from_stream(FILE *stream, dust_index *index)
+{
+  uint64_t num_buckets = 0;
+
+  assert(index);
+  index->header = NULL;
+  index->buckets = NULL;
+
+  index->header = malloc(sizeof *index->header);
+  if (!index->header) {
+    goto fail;
+  }
+  dfread(index->header, sizeof *index->header, 1, stream);
+
+  num_buckets = uint64be_to_host(index->header->num_buckets);
+
+  index->buckets = calloc(num_buckets, sizeof *index->buckets);
+  if (!index->buckets) {
+    goto fail;
+  }
+  dfread(index->buckets, sizeof *index->buckets, num_buckets, stream);
+
+  index->dirtied = 0;
+  index->mmapped = 0;
+
+  return DUST_OK;
+
+fail:
+  if (index->header) {
+    free(index->header);
+  }
+  if (index->buckets) {
+    free(index->buckets);
+  }
+  return !DUST_OK;
+}
+
 /* Returns 0 for success, any other value for failure. */
-static int load_existing_index(const char *index_path, struct index *index)
+static int load_existing_index(const char *index_path, struct dust_index *index)
 {
   assert(index_path);
   assert(index);
@@ -120,23 +294,22 @@ static int load_existing_index(const char *index_path, struct index *index)
   return 0;
 }
 
-static void init_new_index(struct index *index)
+static void init_new_index(struct dust_index *index, int num_buckets)
 {
   assert(index);
 
-  uint64_t default_num_buckets = (4ULL * 1024 * 1024 * 1024) / sizeof(struct index_bucket);
-
   index->header = dmalloc(sizeof(struct index_header));
-  index->header->num_buckets = uint64host_to_be(default_num_buckets);
+  index->header->num_buckets = uint64host_to_be(num_buckets);
 
-  index->buckets = calloc(default_num_buckets, sizeof(struct index_bucket));
+  index->buckets = calloc(num_buckets, sizeof(struct index_bucket));
   assert(index->buckets);
-  memset(index->buckets, 0, default_num_buckets * sizeof(struct index_bucket));
+  memset(index->buckets, 0, num_buckets * sizeof(struct index_bucket));
 
   index->dirtied = 1;
+  index->mmapped = 0;
 }
 
-static uint64_t index_bucket_expected_to_contain_fingerprint(struct index *index, unsigned char *fingerprint)
+static uint64_t index_bucket_expected_to_contain_fingerprint(struct dust_index *index, unsigned char *fingerprint)
 {
   uint64_t bucket = 0;
 
@@ -149,7 +322,7 @@ static uint64_t index_bucket_expected_to_contain_fingerprint(struct index *index
 }
 
 /* Returns (uint64_t)-1 if fingerprint is not found in the index. */
-static uint64_t get_address_of_fingerprint(struct index *index, unsigned char *fingerprint)
+static uint64_t get_address_of_fingerprint(struct dust_index *index, unsigned char *fingerprint)
 {
   assert(fingerprint);
 
@@ -167,7 +340,7 @@ static uint64_t get_address_of_fingerprint(struct index *index, unsigned char *f
 }
 
 /* Returns 0 for false, anything else for true. */
-static int index_contains(struct index *index, unsigned char *fingerprint)
+static int index_contains(struct dust_index *index, unsigned char *fingerprint)
 {
   assert(fingerprint);
 
@@ -175,7 +348,7 @@ static int index_contains(struct index *index, unsigned char *fingerprint)
   return address != (uint64_t)-1;
 }
 
-static void add_fingerprint_to_index(struct index *index, unsigned char *fingerprint, uint64_t offset)
+static void add_fingerprint_to_index(struct dust_index *index, unsigned char *fingerprint, uint64_t offset)
 {
   assert(fingerprint);
 
@@ -195,7 +368,7 @@ static void add_fingerprint_to_index(struct index *index, unsigned char *fingerp
   index->dirtied = 1;
 }
 
-static void add_block_to_arena(struct index *index, FILE *arena, struct arena_block *block)
+static void add_block_to_arena(struct dust_index *index, FILE *arena, struct arena_block *block)
 {
   assert(index);
   assert(arena);
@@ -270,6 +443,185 @@ static void fast_sanity_check_arena(FILE *arena)
   }
 }
 
+dust_arena *dust_open_arena(const char *arena_path, int permissions, int flags)
+{
+  dust_arena *arena = NULL;
+  int open_flags = 0;
+  char *fopen_flags = NULL;
+  FILE *stream = NULL;
+  int fd = -1;
+
+  assert(arena_path);
+  assert(*arena_path);
+
+  if (permissions == DUST_PERM_READ) {
+    open_flags = O_RDONLY;
+    fopen_flags = "r";
+  } else if (permissions == DUST_PERM_RW) {
+    open_flags = O_RDWR | O_APPEND;
+    fopen_flags = "a+";
+  } else {
+    /* Invalid permissions. */
+    goto fail;
+  }
+
+  if (flags & DUST_ARENA_FLAG_CREATE) {
+    open_flags = open_flags | O_CREAT;
+
+    /* CREATE requires us to have the write permission set. Failing to
+     * do so is a programming error. */
+    if (permissions != DUST_PERM_RW) {
+      goto fail;
+    }
+  }
+
+  fd = open(arena_path, open_flags, 0755);
+  if (fd == -1) {
+    goto fail;
+  }
+
+  stream = fdopen(fd, fopen_flags);
+  if (!stream) {
+    goto fail;
+  }
+
+  arena = malloc(sizeof *arena);
+  if (!arena) {
+    goto fail;
+  }
+
+  arena->stream = stream;
+  return arena;
+
+fail:
+  if (stream) {
+    fclose(stream);
+  } else if (fd != -1) {
+    close(fd);
+  }
+  if (arena) {
+    free(arena);
+  }
+  return NULL;
+}
+
+dust_index *dust_open_index(const char *index_path, int permissions, int flags, ...)
+{
+  dust_index *index = NULL;
+  int open_flags = 0, mmap_prot = PROT_NONE;
+  FILE *stream = NULL;
+  int fd = -1, fstat_rv = -1;
+  struct stat sb;
+  va_list ap;
+  uint64_t num_buckets = DUST_DEFAULT_NUM_BUCKETS;
+
+  assert(index_path);
+  assert(*index_path);
+
+  va_start(ap, flags);
+  if (flags & DUST_INDEX_FLAG_CREATE) {
+    num_buckets = va_arg(ap, uint64_t);
+  }
+  va_end(ap);
+
+  if (permissions == DUST_PERM_READ) {
+    open_flags = O_RDONLY;
+    mmap_prot = PROT_READ;
+  } else if (permissions == DUST_PERM_RW) {
+    open_flags = O_RDWR;
+    mmap_prot = PROT_READ | PROT_WRITE;
+  } else {
+    /* Invalid permissions. */
+    goto fail;
+  }
+
+  if (flags & DUST_INDEX_FLAG_CREATE) {
+    open_flags = open_flags | O_CREAT;
+
+    /* CREATE requires us to have the write permission set. Failing to
+     * do so is a programming error. */
+    if (permissions != DUST_PERM_RW) {
+      goto fail;
+    }
+  }
+
+  fd = open(index_path, open_flags, 0755);
+  if (fd == -1) {
+    goto fail;
+  }
+
+  fstat_rv = fstat(fd, &sb);
+  if (fstat_rv == -1) {
+    goto fail;
+  }
+
+  index = malloc(sizeof *index);
+  if (!index) {
+    goto fail;
+  }
+  index->writable = (permissions == DUST_PERM_RW);
+
+  if (!(flags & DUST_INDEX_FLAG_MMAP)) {
+    index->file_data.stdio_pathname = strdup(index_path);
+    assert(index->file_data.stdio_pathname);
+  }
+
+  if (sb.st_size == 0) {
+    /* new or invalid index */
+
+    if (!(flags & DUST_INDEX_FLAG_CREATE)) {
+      /* couldn't have created new index, so it must be invalid */
+      goto fail;
+    }
+
+    /* if mmap, then ftruncate the file to the expected size and mmap it */
+    /* if not, then set up a new dust_index object and return a pointer to it */
+    if (flags & DUST_INDEX_FLAG_MMAP) {
+      if (init_and_mmap_index_from_fd(fd, index, mmap_prot, num_buckets) != DUST_OK) {
+        goto fail;
+      }
+    } else {
+      init_new_index(index, num_buckets);
+      if (close(fd) != 0) {
+        goto fail;
+      }
+    }
+  } else {
+    /* already-existing index; still possibly invalid */
+    /* if mmap, then mmap the file */
+    /* if not, then read the file and populate a dust_index object with it */
+    if (flags & DUST_INDEX_FLAG_MMAP) {
+      if (mmap_existing_index_from_fd(fd, index, mmap_prot) != DUST_OK) {
+        goto fail;
+      }
+    } else {
+      stream = fdopen(fd, "r");
+      if (!stream) {
+        goto fail;
+      }
+      if (load_existing_index_from_stream(stream, index) != DUST_OK) {
+        goto fail;
+      }
+      if (fclose(stream) != 0) {
+        goto fail;
+      }
+    }
+  }
+
+  return index;
+
+fail:
+  if (stream) {
+    fclose(stream);
+  } else if (fd != -1) {
+    close(fd);
+  }
+  if (index) {
+    free(index);
+  }
+  return NULL;
+}
+
 struct dust_log *dust_setup(const char *index_path, const char *arena_path)
 {
   struct dust_log *log = dmalloc(sizeof *log);
@@ -295,7 +647,7 @@ struct dust_log *dust_setup(const char *index_path, const char *arena_path)
   if (sb.st_size == 0) {
     if (!existing_index_loaded) {
       fprintf(stderr, "creating new index...\n");
-      init_new_index(log->index);
+      init_new_index(log->index, DUST_DEFAULT_NUM_BUCKETS);
     }
   } else {
     assert(existing_index_loaded == 1);
@@ -304,7 +656,7 @@ struct dust_log *dust_setup(const char *index_path, const char *arena_path)
   return log;
 }
 
-static void fwrite_index(FILE *stream, struct index *index)
+static void fwrite_index(FILE *stream, struct dust_index *index)
 {
   uint64_t num_buckets = 0;
 
@@ -316,6 +668,60 @@ static void fwrite_index(FILE *stream, struct index *index)
   num_buckets = uint64be_to_host(index->header->num_buckets);
   dfwrite(index->header, sizeof(struct index_header), 1, stream);
   dfwrite(index->buckets, sizeof(struct index_bucket), num_buckets, stream);
+}
+
+int dust_close_arena(dust_arena **arena)
+{
+  assert(arena && *arena);
+  assert((*arena)->stream);
+
+  if (fclose((*arena)->stream) != 0) {
+    goto fail;
+  }
+  (*arena)->stream = NULL;
+  free(*arena);
+  *arena = NULL;
+
+  return DUST_OK;
+
+fail:
+  return !DUST_OK;
+}
+
+int dust_close_index(dust_index **index)
+{
+  assert(index && *index);
+  if ((*index)->writable) {
+    if ((*index)->dirtied) {
+      if ((*index)->mmapped) {
+        uint64_t num_buckets = uint64be_to_host((*index)->header->num_buckets);
+        assert(msync((*index)->header,
+                     sizeof *(*index)->header,
+                     MS_SYNC) == 0);
+        assert(msync((*index)->buckets,
+                     num_buckets * sizeof(*(*index)->buckets),
+                     MS_SYNC) == 0);
+        assert(munmap((*index)->header,
+                      sizeof *(*index)->header) == 0);
+        assert(munmap((*index)->buckets,
+                      num_buckets * sizeof(*(*index)->buckets)) == 0);
+        assert(close((*index)->file_data.mmapped_fd) == 0);
+      } else {
+        FILE *index_file = fopen((*index)->file_data.stdio_pathname, "w");
+        assert(index_file);
+        fwrite_index(index_file, *index);
+        assert(fclose(index_file) == 0);
+
+        free((*index)->header);
+        free((*index)->buckets);
+        memset((*index), 0, sizeof **index); /* make programming errors more likely to crash */
+      }
+    }
+  }
+
+  free(*index);
+  *index = NULL;
+  return DUST_OK;
 }
 
 void dust_teardown(struct dust_log **log)
@@ -447,7 +853,7 @@ static int arena_block_fingerprint_matches_contents(struct arena_block block, of
 
 static int add_block_fingerprint_to_index(struct arena_block block, off_t offset, void *data)
 {
-  struct index *index = data;
+  struct dust_index *index = data;
 
   /* add_fingerprint_to_index asserts on failure */
   add_fingerprint_to_index(index, block.header.fingerprint, offset);
@@ -459,7 +865,7 @@ int dust_rebuild_index(const char *arena_path, const char *new_index_path)
   char *old_index_path = getenv("DUST_INDEX");
   int rv = DUST_OK;
   FILE *arena = NULL;
-  struct index *index = NULL;
+  struct dust_index *index = NULL;
 
   if (strcmp(old_index_path, new_index_path) == 0) {
     fprintf(stderr,
@@ -470,7 +876,7 @@ int dust_rebuild_index(const char *arena_path, const char *new_index_path)
   }
 
   index = dmalloc(sizeof *index);
-  init_new_index(index);
+  init_new_index(index, DUST_DEFAULT_NUM_BUCKETS);
 
   assert(arena_path);
   assert(strlen(arena_path) > 0);
