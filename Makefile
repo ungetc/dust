@@ -30,9 +30,10 @@ clean:
 	rm -f $(BINARIES) $(OBJS)
 
 testsuite: all
+	rm -f $(PWD)/testsuite/index $(PWD)/testsuite/arena
 	cd testsuite && \
 	  DUST_INDEX=$(PWD)/testsuite/index DUST_ARENA=$(PWD)/testsuite/arena ./run-tests.sh
-	rm $(PWD)/testsuite/index $(PWD)/testsuite/arena
+	rm -f $(PWD)/testsuite/index $(PWD)/testsuite/arena
 
 install: all
 	install -m 755 -d $(PREFIX)/bin/

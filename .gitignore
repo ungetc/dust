@@ -10,3 +10,4 @@ dust-archive
 dust-extract
 dust-listing
 dust-rebuild-index
+testsuite/unit/test-*
