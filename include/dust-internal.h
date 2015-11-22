@@ -55,13 +55,12 @@ int dust_close_index(dust_index **index);
  */
 int dust_check(dust_index *index, dust_arena *arena);
 
-/* Scans the specified arena, and produces a new index file at the specified
- * path. To minimize the chance of accidentally overwriting an existing index,
- * new_index_path must not be the same as the value of the DUST_INDEX envvar.
- * Returns DUST_OK if the rebuild completes successfully, and some other value
- * otherwise.
+/* Scans the specified arena, and adds each block in it to the specified index.
+ * Useful for building a fresh index from an existing arena, and perhaps for
+ * other things.
+ * Returns DUST_OK on success, and some other value on failure.
  */
-int dust_rebuild_index(const char *arena_path, const char *new_index_path);
+int dust_fill_index_from_arena(dust_index *index, dust_arena *arena);
 
 struct dust_fingerprint dust_put(dust_index *index, dust_arena *arena, unsigned char *data, uint32_t size, uint32_t type);
 struct dust_block *dust_get(dust_index *index, dust_arena *arena, struct dust_fingerprint fingerprint);

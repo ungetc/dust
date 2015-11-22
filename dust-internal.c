@@ -790,47 +790,13 @@ static int add_block_fingerprint_to_index(struct arena_block block, off_t offset
   return DUST_OK;
 }
 
-int dust_rebuild_index(const char *arena_path, const char *new_index_path)
+int dust_fill_index_from_arena(dust_index *index, dust_arena *arena)
 {
-  char *old_index_path = getenv("DUST_INDEX");
-  int rv = DUST_OK;
-  FILE *arena = NULL;
-  struct dust_index *index = NULL;
-
-  if (strcmp(old_index_path, new_index_path) == 0) {
-    fprintf(stderr,
-            "When rebuilding index, new index path must not "
-            "match $DUST_INDEX. This is to ensure the existing "
-            "index file is not overwritten unintentionally.\n");
-    return !DUST_OK;
-  }
-
-  index = dmalloc(sizeof *index);
-  init_new_index(index, DUST_DEFAULT_NUM_BUCKETS);
-
-  assert(arena_path);
-  assert(strlen(arena_path) > 0);
-  arena = fopen(arena_path, "r");
+  assert(index);
   assert(arena);
-  fast_sanity_check_arena(arena);
-
-  rv = for_block_in_arena(arena, add_block_fingerprint_to_index, index);
-
-  if (rv != DUST_OK) {
-    fprintf(stderr, "Encountered errors while rebuilding index.\n");
+  if (for_block_in_arena(arena->stream, add_block_fingerprint_to_index, index) != DUST_OK) {
     return !DUST_OK;
   }
-
-  /* Teardown. */
-  FILE *new_index_file = fopen(new_index_path, "w");
-  assert(new_index_file);
-  fwrite_index(new_index_file, index);
-  assert(0 == fclose(new_index_file));
-  assert(0 == fclose(arena));
-  free(index->header);
-  free(index->buckets);
-  free(index);
-
   return DUST_OK;
 }
 
