@@ -46,9 +46,21 @@ install: all
 .c.o:
 	$(CC) -c $(CFLAGS) $(PERSONAL_CFLAGS) $< -o $@
 
-build-binary: $(BINARY_NAME).c $(OBJS)
-	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(BINARY_NAME).c $(OBJS) -o $(BINARY_NAME)
+dust: dust.c memory.o
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< memory.o -o $@
 
-$(BINARIES):
-	$(MAKE) BINARY_NAME=$@ build-binary
+dust-archive: dust-archive.c $(OBJS)
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+
+dust-check: dust-check.c $(OBJS)
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+
+dust-extract: dust-extract.c $(OBJS)
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+
+dust-listing: dust-listing.c $(OBJS)
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+
+dust-rebuild-index: dust-rebuild-index.c $(OBJS)
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
 
