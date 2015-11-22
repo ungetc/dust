@@ -5,23 +5,55 @@
 
 int main(void)
 {
-  char *index = getenv("DUST_INDEX");
-  char *arena = getenv("DUST_ARENA");
-  int rv = 0;
+  char *index_path = getenv("DUST_INDEX");
+  char *arena_path = getenv("DUST_ARENA");
+  dust_index *index = NULL;
+  dust_arena *arena = NULL;
 
-  if (!index || strlen(index) == 0) index = "index";
-  if (!arena || strlen(arena) == 0) arena = "arena";
+  if (!index_path || strlen(index_path) == 0) index_path = "index";
+  if (!arena_path || strlen(arena_path) == 0) arena_path = "arena";
 
-  struct dust_log *log = dust_setup(index, arena);
-
-  if (dust_check(log) == DUST_OK) {
-    rv = 0;
-  } else {
-    rv = 1;
+  index = dust_open_index(
+    index_path,
+    DUST_PERM_READ,
+    DUST_INDEX_FLAG_NONE
+  );
+  if (!index) {
+    goto fail;
   }
 
-  dust_teardown(&log);
+  arena = dust_open_arena(
+    arena_path,
+    DUST_PERM_READ,
+    DUST_ARENA_FLAG_NONE
+  );
+  if (!arena) {
+    goto fail;
+  }
 
-  return rv;
+  if (dust_check(index, arena) != DUST_OK) {
+    goto fail;
+  }
+
+  if (dust_close_arena(&arena) != DUST_OK) {
+    arena = NULL;
+    goto fail;
+  }
+
+  if (dust_close_index(&index) != DUST_OK) {
+    index = NULL;
+    goto fail;
+  }
+
+  return 0;
+
+fail:
+  if (arena) {
+    dust_close_arena(&arena);
+  }
+  if (index) {
+    dust_close_index(&index);
+  }
+  return 1;
 }
 

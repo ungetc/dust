@@ -9,12 +9,14 @@
 #include "io.h"
 #include "memory.h"
 
-FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
+FILE *extract_archive_listing(dust_index *index, dust_arena *arena, char *archive_infile)
 {
   FILE *archive = NULL, *listing = NULL;
   uint32_t version = 0, magic = 0;
   struct dust_fingerprint f;
 
+  assert(index);
+  assert(arena);
   assert(archive_infile);
 
   archive = fopen(archive_infile, "r");
@@ -39,7 +41,7 @@ FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
     return NULL;
   }
 
-  if (DUST_OK != extract_file(log, f, listing, NULL)) {
+  if (extract_file(index, arena, f, listing, NULL) != DUST_OK) {
     fprintf(stderr,
             "Failed to extract file listing. Bailing.\n");
     assert(0 == fclose(listing));
@@ -55,13 +57,15 @@ FILE *extract_archive_listing(struct dust_log *log, char *archive_infile)
   return listing;
 }
 
-int for_item_in_listing(struct dust_log *log,
+int for_item_in_listing(dust_index *index,
+                        dust_arena *arena,
                         FILE *listing,
-                        int callback(struct dust_log *log, struct listing_item item))
+                        int callback(dust_index *index, dust_arena *arena, struct listing_item item))
 {
   int rv = DUST_OK;
 
-  assert(log);
+  assert(index);
+  assert(arena);
   assert(listing);
   assert(callback);
 
@@ -123,7 +127,7 @@ int for_item_in_listing(struct dust_log *log,
     dfread(&item.permissions, sizeof(item.permissions), 1, listing);
     item.permissions = ntohl(item.permissions);
 
-    if (DUST_OK != callback(log, item)) {
+    if (DUST_OK != callback(index, arena, item)) {
       rv = !DUST_OK;
     }
 
@@ -136,14 +140,16 @@ int for_item_in_listing(struct dust_log *log,
   return rv;
 }
 
-int extract_file(struct dust_log *log,
+int extract_file(dust_index *index,
+                 dust_arena *arena,
                  struct dust_fingerprint fingerprint,
                  FILE *outfile,
                  SHA256_CTX *hash_context)
 {
-  assert(log);
+  assert(index);
+  assert(arena);
 
-  struct dust_block *block = dust_get(log, fingerprint);
+  struct dust_block *block = dust_get(index, arena, fingerprint);
   assert(block);
 
   if (dust_block_type(block) == DUST_TYPE_FILEDATA) {
@@ -176,7 +182,7 @@ int extract_file(struct dust_log *log,
     for (uint32_t i = 0; i < size; i += DUST_FINGERPRINT_SIZE) {
       struct dust_fingerprint f;
       memcpy(f.bytes, fingerprints + i, DUST_FINGERPRINT_SIZE);
-      if (DUST_OK != extract_file(log, f, outfile, hash_context)) {
+      if (DUST_OK != extract_file(index, arena, f, outfile, hash_context)) {
         fprintf(stderr,
                 "Encountered a problem while extracting a file. Bailing.\n");
         return !DUST_OK;

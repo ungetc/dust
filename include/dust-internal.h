@@ -8,7 +8,6 @@
 
 #define DUST_OK 0
 
-struct dust_log;
 struct dust_block;
 
 typedef struct dust_arena dust_arena;
@@ -49,15 +48,12 @@ int dust_close_arena(dust_arena **arena);
 /* Returns DUST_OK on success; some other value on failure. */
 int dust_close_index(dust_index **index);
 
-struct dust_log *dust_setup(const char *index_path, const char *arena_path);
-void dust_teardown(struct dust_log **log);
-
 /* Checks each block in the specified log, confirming that it's fingerprint
  * agrees with its contents.
  * log must be a value returned by dust_setup().
  * Returns DUST_OK if no errors are found; otherwise, returns some other value.
  */
-int dust_check(struct dust_log *log);
+int dust_check(dust_index *index, dust_arena *arena);
 
 /* Scans the specified arena, and produces a new index file at the specified
  * path. To minimize the chance of accidentally overwriting an existing index,
@@ -67,8 +63,8 @@ int dust_check(struct dust_log *log);
  */
 int dust_rebuild_index(const char *arena_path, const char *new_index_path);
 
-struct dust_fingerprint dust_put(struct dust_log *log, unsigned char *data, uint32_t size, uint32_t type);
-struct dust_block *dust_get(struct dust_log *log, struct dust_fingerprint fingerprint);
+struct dust_fingerprint dust_put(dust_index *index, dust_arena *arena, unsigned char *data, uint32_t size, uint32_t type);
+struct dust_block *dust_get(dust_index *index, dust_arena *arena, struct dust_fingerprint fingerprint);
 void dust_release(struct dust_block **block);
 
 uint32_t dust_block_type(struct dust_block *block);

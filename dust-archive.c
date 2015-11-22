@@ -29,7 +29,8 @@
 #define DUST_LISTING_SYMLINK   2
 
 struct dust_fingerprint add_file(FILE *file,
-                                 struct dust_log *log,
+                                 dust_index *index,
+                                 dust_arena *arena,
                                  unsigned char *hash,
                                  uint32_t type)
 {
@@ -39,7 +40,8 @@ struct dust_fingerprint add_file(FILE *file,
   uint64_t fpcount = 0;
 
   assert(file);
-  assert(log);
+  assert(index);
+  assert(arena);
 
   if (!fplisting) {
     fprintf(stderr, "Couldn't open fingerprint listing. Bailing.\n");
@@ -65,7 +67,7 @@ struct dust_fingerprint add_file(FILE *file,
       assert(1 == SHA256_Update(&context, block, bytes));
     }
 
-    struct dust_fingerprint f = dust_put(log, block, bytes, type);
+    struct dust_fingerprint f = dust_put(index, arena, block, bytes, type);
 
     /* If we only needed to write out one data block for the file,
      * just return the fingerprint of that block. */
@@ -91,7 +93,7 @@ struct dust_fingerprint add_file(FILE *file,
     exit(1);
   }
 
-  struct dust_fingerprint f = add_file(fplisting, log, hash, DUST_TYPE_FINGERPRINTS);
+  struct dust_fingerprint f = add_file(fplisting, index, arena, hash, DUST_TYPE_FINGERPRINTS);
   assert(0 == fclose(fplisting));
 
   if (hash) {
@@ -102,14 +104,12 @@ struct dust_fingerprint add_file(FILE *file,
 }
 
 /* Returns DUST_OK on success, and some other value on failure. */
-int archive_files(struct dust_log *log)
+int archive_files(dust_index *index, dust_arena *arena)
 {
   FILE *listing = tmpfile();
 
-  if (log == NULL) {
-    fprintf(stderr, "Invalid log. Bailing.\n");
-    return !DUST_OK;
-  }
+  assert(index);
+  assert(arena);
 
   if (listing == NULL) {
     fprintf(stderr,
@@ -162,7 +162,7 @@ int archive_files(struct dust_log *log)
       uint32_t recordtype = htonl(DUST_LISTING_FILE);
       uint32_t pathbytes = htonl(linelen+1); /* +1 for the trailing \0 */
       unsigned char hash[SHA256_DIGEST_LENGTH];
-      struct dust_fingerprint f = add_file(file, log, hash, DUST_TYPE_FILEDATA);
+      struct dust_fingerprint f = add_file(file, index, arena, hash, DUST_TYPE_FILEDATA);
 
       dfwrite(&recordtype, sizeof(recordtype), 1, listing);
       dfwrite(&pathbytes, sizeof(pathbytes), 1, listing);
@@ -235,7 +235,7 @@ int archive_files(struct dust_log *log)
     return !DUST_OK;
   }
 
-  struct dust_fingerprint f = add_file(listing, log, NULL, DUST_TYPE_FILEDATA);
+  struct dust_fingerprint f = add_file(listing, index, arena, NULL, DUST_TYPE_FILEDATA);
 
   dfwrite(&magic, sizeof(magic), 1, stdout);
   dfwrite(f.bytes, 1, DUST_FINGERPRINT_SIZE, stdout);
@@ -265,27 +265,60 @@ int parse_options(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-  char *index = getenv("DUST_INDEX");
-  char *arena = getenv("DUST_ARENA");
-  int rv = 0;
+  char *index_path = getenv("DUST_INDEX");
+  char *arena_path = getenv("DUST_ARENA");
+  dust_index *index = NULL;
+  dust_arena *arena = NULL;
 
-  if (!index || strlen(index) == 0) index = "index";
-  if (!arena || strlen(arena) == 0) arena = "arena";
+  if (!index_path || strlen(index_path) == 0) index_path = "index";
+  if (!arena_path || strlen(arena_path) == 0) arena_path = "arena";
 
   int offset = parse_options(argc, argv);
   argc -= offset;
   argv += offset;
 
-  struct dust_log *log = dust_setup(index, arena);
-
-  if (archive_files(log) == DUST_OK) {
-    rv = 0;
-  } else {
-    rv = 1;
+  index = dust_open_index(
+    index_path,
+    DUST_PERM_RW,
+    DUST_INDEX_FLAG_CREATE,
+    DUST_DEFAULT_NUM_BUCKETS
+  );
+  if (!index) {
+    goto fail;
   }
 
-  dust_teardown(&log);
+  arena = dust_open_arena(
+    arena_path,
+    DUST_PERM_RW,
+    DUST_ARENA_FLAG_CREATE
+  );
+  if (!arena) {
+    goto fail;
+  }
 
-  return rv;
+  if (archive_files(index, arena) != DUST_OK) {
+    goto fail;
+  }
+
+  if (dust_close_arena(&arena) != DUST_OK) {
+    arena = NULL;
+    goto fail;
+  }
+
+  if (dust_close_index(&index) != DUST_OK) {
+    index = NULL;
+    goto fail;
+  }
+
+  return 0;
+
+fail:
+  if (arena) {
+    dust_close_arena(&arena);
+  }
+  if (index) {
+    dust_close_index(&index);
+  }
+  return 1;
 }
 

@@ -38,9 +38,10 @@ void fprint_fingerprint(FILE *f, struct dust_fingerprint fp)
   fprint_hash(f, fp.bytes);
 }
 
-int display_listing_item(struct dust_log *log, struct listing_item item)
+int display_listing_item(dust_index *index, dust_arena *arena, struct listing_item item)
 {
-  (void)log;
+  (void)index;
+  (void)arena;
   switch (item.recordtype) {
   case DUST_LISTING_FILE: {
     printf("F ");
@@ -73,32 +74,78 @@ int display_listing_item(struct dust_log *log, struct listing_item item)
 }
 
 /* Returns DUST_OK on success. */
-int display_listing(struct dust_log *log,
+int display_listing(dust_index *index,
+                    dust_arena *arena,
                     char *archive_file)
 {
-  assert(log);
+  assert(index);
+  assert(arena);
   assert(archive_file);
 
-  FILE *listing = extract_archive_listing(log, archive_file);
+  FILE *listing = extract_archive_listing(index, arena, archive_file);
   if (!listing) { exit(1); }
 
-  return for_item_in_listing(log, listing, display_listing_item);
+  return for_item_in_listing(index, arena, listing, display_listing_item);
 }
 
 int main(int argc, char **argv)
 {
-  char *index = getenv("DUST_INDEX");
-  char *arena = getenv("DUST_ARENA");
-  int rv = 0;
+  char *archive_file = NULL;
+  char *index_path = getenv("DUST_INDEX");
+  char *arena_path = getenv("DUST_ARENA");
+  dust_index *index = NULL;
+  dust_arena *arena = NULL;
 
-  if (!index || strlen(index) == 0) index = "index";
-  if (!arena || strlen(arena) == 0) arena = "arena";
+  if (argc != 2) {
+    // TODO usage
+    goto fail;
+  }
+  archive_file = argv[1];
 
-  struct dust_log *log = dust_setup(index, arena);
-  if (argc == 2) {
-    if (DUST_OK != display_listing(log, argv[1])) rv = 1;
+  if (!index_path || strlen(index_path) == 0) index_path = "index";
+  if (!arena_path || strlen(arena_path) == 0) arena_path = "arena";
+
+  index = dust_open_index(
+    index_path,
+    DUST_PERM_READ,
+    DUST_INDEX_FLAG_NONE
+  );
+  if (!index) {
+    goto fail;
   }
 
-  return rv;
+  arena = dust_open_arena(
+    arena_path,
+    DUST_PERM_READ,
+    DUST_ARENA_FLAG_NONE
+  );
+  if (!arena) {
+    goto fail;
+  }
+
+  if (display_listing(index, arena, archive_file) != DUST_OK) {
+    goto fail;
+  }
+
+  if (dust_close_arena(&arena) != DUST_OK) {
+    arena = NULL;
+    goto fail;
+  }
+
+  if (dust_close_index(&index) != DUST_OK) {
+    index = NULL;
+    goto fail;
+  }
+
+  return 0;
+
+fail:
+  if (arena) {
+    dust_close_arena(&arena);
+  }
+  if (index) {
+    dust_close_index(&index);
+  }
+  return 1;
 }
 

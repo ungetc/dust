@@ -37,7 +37,7 @@ struct listing_item {
 };
 
 /* Returns non-null on success. */
-FILE *extract_archive_listing(struct dust_log *log, char *archive_infile);
+FILE *extract_archive_listing(dust_index *index, dust_arena *arena, char *archive_infile);
 
 /* Returns DUST_OK if all items in the listing were processed successfully.
  * callback() must return DUST_OK if it succeeds in processing the item passed to
@@ -46,12 +46,14 @@ FILE *extract_archive_listing(struct dust_log *log, char *archive_infile);
  * for_item_in_listing after callback() has returned -- if you want a copy
  * of them, make a copy of them.
  */
-int for_item_in_listing(struct dust_log *log,
+int for_item_in_listing(dust_index *index,
+                        dust_arena *arena,
                         FILE *listing,
-                        int callback(struct dust_log *log, struct listing_item item));
+                        int callback(dust_index *index, dust_arena *arena, struct listing_item item));
 
 /* Returns DUST_OK on success. */
-int extract_file(struct dust_log *log,
+int extract_file(dust_index *index,
+                 dust_arena *arena,
                  struct dust_fingerprint fingerprint,
                  FILE *outfile,
                  SHA256_CTX *hash_context);

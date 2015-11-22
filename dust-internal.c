@@ -266,34 +266,6 @@ fail:
   return !DUST_OK;
 }
 
-/* Returns 0 for success, any other value for failure. */
-static int load_existing_index(const char *index_path, struct dust_index *index)
-{
-  assert(index_path);
-  assert(index);
-
-  FILE *index_file = fopen(index_path, "r");
-
-  if (index_file == NULL) {
-    fprintf(stderr, "Unable to open file '%s' for reading.\n", index_path);
-    return -1;
-  }
-  index->dirtied = 0;
-
-  index->header = dmalloc(sizeof(*index->header));
-  dfread(index->header, sizeof(*index->header), 1, index_file);
-
-  uint64_t num_buckets = uint64be_to_host(index->header->num_buckets);
-
-  /* TODO check for overflow when calculating the size of this buffer */
-  index->buckets = dmalloc(num_buckets * sizeof(*index->buckets));
-  dfread(index->buckets, sizeof(*index->buckets), num_buckets, index_file);
-
-  assert(0 == fclose(index_file));
-
-  return 0;
-}
-
 static void init_new_index(struct dust_index *index, int num_buckets)
 {
   assert(index);
@@ -368,17 +340,19 @@ static void add_fingerprint_to_index(struct dust_index *index, unsigned char *fi
   index->dirtied = 1;
 }
 
-static void add_block_to_arena(struct dust_index *index, FILE *arena, struct arena_block *block)
+static void add_block_to_arena(dust_index *index, dust_arena *arena, struct arena_block *block)
 {
   assert(index);
   assert(arena);
   assert(block);
 
   if (!index_contains(index, block->header.fingerprint)) {
-    off_t foff = ftello(arena);
+    off_t foff = 0;
     uint32_t size = uint32be_to_host(block->header.size);
     uint64_t address = 0;
 
+    assert(fseek(arena->stream, 0, SEEK_END) == 0);
+    foff = ftello(arena->stream);
     assert(foff >= 0);
     address = foff;
     int64_t current_offset = address % ARENA_HUNK_SIZE;
@@ -386,17 +360,18 @@ static void add_block_to_arena(struct dust_index *index, FILE *arena, struct are
     if (next_offset >= ARENA_HUNK_SIZE) {
       /* Zero out the remainder of our current hunk. */
       for ((void)current_offset; current_offset < ARENA_HUNK_SIZE; current_offset++) {
-        assert(0 == putc(0, arena));
+        assert(0 == putc(0, arena->stream));
       }
     }
 
-    foff = ftello(arena);
+    assert(fseek(arena->stream, 0, SEEK_END) == 0);
+    foff = ftello(arena->stream);
     assert(foff >= 0);
     address = foff;
 
-    dfwrite(&block->header, sizeof(block->header), 1, arena);
-    dfwrite(block->data, 1, size, arena);
-    assert(0 == fflush(arena));
+    dfwrite(&block->header, sizeof(block->header), 1, arena->stream);
+    dfwrite(block->data, 1, size, arena->stream);
+    assert(0 == fflush(arena->stream));
     add_fingerprint_to_index(index, block->header.fingerprint, address);
   }
 }
@@ -622,40 +597,6 @@ fail:
   return NULL;
 }
 
-struct dust_log *dust_setup(const char *index_path, const char *arena_path)
-{
-  struct dust_log *log = dmalloc(sizeof *log);
-  int existing_index_loaded = 0;
-
-  log->index = dmalloc(sizeof *log->index);
-  if (load_existing_index(index_path, log->index) != 0) {
-    fprintf(stderr, "Unable to load existing index\n");
-  } else {
-    existing_index_loaded = 1;
-  }
-
-  log->arena = fopen(arena_path, "a+");
-  assert(log->arena);
-  log->index_path = dstrdup(index_path);
-
-  fast_sanity_check_arena(log->arena);
-
-  struct stat sb;
-  int fd = fileno(log->arena);
-  assert(0 == fstat(fd, &sb));
-
-  if (sb.st_size == 0) {
-    if (!existing_index_loaded) {
-      fprintf(stderr, "creating new index...\n");
-      init_new_index(log->index, DUST_DEFAULT_NUM_BUCKETS);
-    }
-  } else {
-    assert(existing_index_loaded == 1);
-  }
-
-  return log;
-}
-
 static void fwrite_index(FILE *stream, struct dust_index *index)
 {
   uint64_t num_buckets = 0;
@@ -722,26 +663,6 @@ int dust_close_index(dust_index **index)
   free(*index);
   *index = NULL;
   return DUST_OK;
-}
-
-void dust_teardown(struct dust_log **log)
-{
-  assert(log);
-  assert(*log);
-
-  if ((*log)->index->dirtied) {
-    FILE *index_file = fopen((*log)->index_path, "w");
-    assert(index_file);
-    fwrite_index(index_file, (*log)->index);
-    assert(0 == fclose(index_file));
-  }
-
-  assert(0 == fclose((*log)->arena));
-  free((*log)->index->header);
-  free((*log)->index->buckets);
-  free((*log)->index);
-  free(*log);
-  *log = NULL;
 }
 
 /* Returns DUST_OK if iteration was completed successfully.
@@ -904,15 +825,14 @@ int dust_rebuild_index(const char *arena_path, const char *new_index_path)
   return DUST_OK;
 }
 
-int dust_check(struct dust_log *log)
+int dust_check(dust_index *index, dust_arena *arena)
 {
   int rv = DUST_OK;
 
-  assert(log);
-  assert(log->index);
-  assert(log->arena);
+  assert(index);
+  assert(arena);
 
-  rv = for_block_in_arena(log->arena, arena_block_fingerprint_matches_contents, NULL);
+  rv = for_block_in_arena(arena->stream, arena_block_fingerprint_matches_contents, NULL);
 
   if (rv != DUST_OK) {
     fprintf(stderr, "Errors encountered during check.\n");
@@ -922,13 +842,12 @@ int dust_check(struct dust_log *log)
   return DUST_OK;
 }
 
-struct dust_fingerprint dust_put(struct dust_log *log, unsigned char *data, uint32_t size, uint32_t type)
+struct dust_fingerprint dust_put(dust_index *index, dust_arena *arena, unsigned char *data, uint32_t size, uint32_t type)
 {
   struct arena_block block;
 
-  assert(log);
-  assert(log->index);
-  assert(log->arena);
+  assert(index);
+  assert(arena);
   assert(data);
   assert(size <= sizeof(block.data));
 
@@ -952,28 +871,29 @@ struct dust_fingerprint dust_put(struct dust_log *log, unsigned char *data, uint
   struct dust_fingerprint result;
   memcpy(result.bytes, block.header.fingerprint, DUST_FINGERPRINT_SIZE);
 
-  add_block_to_arena(log->index, log->arena, &block);
+  add_block_to_arena(index, arena, &block);
 
   return result;
 }
 
-struct dust_block *dust_get(struct dust_log *log, struct dust_fingerprint fingerprint)
+struct dust_block *dust_get(dust_index *index, dust_arena *arena, struct dust_fingerprint fingerprint)
 {
-  assert(log);
+  assert(index);
+  assert(arena);
 
-  uint64_t address = get_address_of_fingerprint(log->index, fingerprint.bytes);
+  uint64_t address = get_address_of_fingerprint(index, fingerprint.bytes);
   uint32_t size = 0;
 
   assert(address != (uint64_t)-1);
   /* TODO ensure address fits into an off_t, somehow */
-  assert(0 == fseeko(log->arena, address, SEEK_SET));
+  assert(0 == fseeko(arena->stream, address, SEEK_SET));
 
   struct dust_block *result = dmalloc(sizeof *result);
 
-  dfread(&result->ablock.header, sizeof(result->ablock.header), 1, log->arena);
+  dfread(&result->ablock.header, sizeof(result->ablock.header), 1, arena->stream);
 
   size = uint32be_to_host(result->ablock.header.size);
-  dfread(result->ablock.data, 1, size, log->arena);
+  dfread(result->ablock.data, 1, size, arena->stream);
 
   assert(0 == memcmp(fingerprint.bytes, result->ablock.header.fingerprint, DUST_FINGERPRINT_SIZE));
 
