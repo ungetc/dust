@@ -49,7 +49,8 @@ ct_assert(sizeof (struct index_bucket) == 4096);
 
 struct index_header {
   uint64_t_be num_buckets;
-  uint8_t unused[4088];
+  uint64_t_be version;
+  uint8_t unused[4080];
 };
 
 ct_assert(sizeof (struct index_header) == 4096);
@@ -581,6 +582,10 @@ dust_index *dust_open_index(const char *index_path, int permissions, int flags, 
         goto fail;
       }
     }
+  }
+
+  if (uint64be_to_host(index->header->version) != 0) {
+    goto fail;
   }
 
   return index;
