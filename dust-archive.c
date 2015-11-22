@@ -284,6 +284,7 @@ int main(int argc, char **argv)
     DUST_DEFAULT_NUM_BUCKETS
   );
   if (!index) {
+    fprintf(stderr, "Failed to open index file at '%s'.\n", index_path);
     goto fail;
   }
 
@@ -293,19 +294,29 @@ int main(int argc, char **argv)
     DUST_ARENA_FLAG_CREATE
   );
   if (!arena) {
+    fprintf(stderr, "Failed to open arena file at '%s'.\n", arena_path);
     goto fail;
   }
 
   if (archive_files(index, arena) != DUST_OK) {
+    fprintf(stderr, "Errors encountered while archiving files.\n");
     goto fail;
   }
 
   if (dust_close_arena(&arena) != DUST_OK) {
+    fprintf(
+      stderr,
+      "Errors encountered while closing arena. Data may have been lost.\n"
+    );
     arena = NULL;
     goto fail;
   }
 
   if (dust_close_index(&index) != DUST_OK) {
+    fprintf(
+      stderr,
+      "Errors encountered while closing index. Index file is likely to be corrupt.\n"
+    );
     index = NULL;
     goto fail;
   }

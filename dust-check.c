@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,6 +20,7 @@ int main(void)
     DUST_INDEX_FLAG_NONE
   );
   if (!index) {
+    fprintf(stderr, "Failed to open index file at '%s'.\n", index_path);
     goto fail;
   }
 
@@ -28,19 +30,33 @@ int main(void)
     DUST_ARENA_FLAG_NONE
   );
   if (!arena) {
+    fprintf(stderr, "Failed to open arena file at '%s'.\n", arena_path);
     goto fail;
   }
 
   if (dust_check(index, arena) != DUST_OK) {
+    fprintf(
+      stderr,
+      "Errors encountered while checking integrity of index and arena.\n"
+      "One or both is likely corrupt.\n"
+    );
     goto fail;
   }
 
   if (dust_close_arena(&arena) != DUST_OK) {
+    fprintf(
+      stderr,
+      "Errors encountered while closing arena.\n"
+    );
     arena = NULL;
     goto fail;
   }
 
   if (dust_close_index(&index) != DUST_OK) {
+    fprintf(
+      stderr,
+      "Errors encountered while closing index.\n"
+    );
     index = NULL;
     goto fail;
   }

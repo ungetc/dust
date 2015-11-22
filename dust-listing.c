@@ -111,6 +111,7 @@ int main(int argc, char **argv)
     DUST_INDEX_FLAG_NONE
   );
   if (!index) {
+    fprintf(stderr, "Failed to open index file at '%s'.\n", index_path);
     goto fail;
   }
 
@@ -120,19 +121,29 @@ int main(int argc, char **argv)
     DUST_ARENA_FLAG_NONE
   );
   if (!arena) {
+    fprintf(stderr, "Failed to open arena file at '%s'.\n", arena_path);
     goto fail;
   }
 
   if (display_listing(index, arena, archive_file) != DUST_OK) {
+    fprintf(stderr, "Errors encountered while displaying listing.\n");
     goto fail;
   }
 
   if (dust_close_arena(&arena) != DUST_OK) {
+    fprintf(
+      stderr,
+      "Errors encountered while closing arena.\n"
+    );
     arena = NULL;
     goto fail;
   }
 
   if (dust_close_index(&index) != DUST_OK) {
+    fprintf(
+      stderr,
+      "Errors encountered while closing index.\n"
+    );
     index = NULL;
     goto fail;
   }
