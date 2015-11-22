@@ -465,6 +465,8 @@ dust_arena *dust_open_arena(const char *arena_path, int permissions, int flags)
     goto fail;
   }
 
+  fast_sanity_check_arena(stream);
+
   arena = malloc(sizeof *arena);
   if (!arena) {
     goto fail;
