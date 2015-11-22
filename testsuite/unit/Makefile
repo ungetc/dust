@@ -1,3 +1,5 @@
+include ../../mkutils.mk
+
 LDFLAGS=-lcrypto
 CFLAGS=-Iinclude -O2 -std=c99 -Wall -Wextra
 
@@ -21,8 +23,8 @@ clean: tidy
 	rm -f test-dust_open_index test-dust_open_arena
 
 test-dust_open_index: dust_open_index.c $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -I../../include $(OBJS) dust_open_index.c -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) -I../../include $(ALLDEPS) -o $@
 
 test-dust_open_arena: dust_open_arena.c $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -I../../include $(OBJS) dust_open_arena.c -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) -I../../include $(ALLDEPS) -o $@
 

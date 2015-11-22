@@ -1,4 +1,5 @@
 include personal.mk
+include mkutils.mk
 
 # Install directory. Binaries will go in $PREFIX/bin,
 # manpages in $PREFIX/man, and so on.
@@ -47,20 +48,20 @@ install: all
 	$(CC) -c $(CFLAGS) $(PERSONAL_CFLAGS) $< -o $@
 
 dust: dust.c memory.o
-	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< memory.o -o $@
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(ALLDEPS) -o $@
 
 dust-archive: dust-archive.c $(OBJS)
-	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(ALLDEPS) -o $@
 
 dust-check: dust-check.c $(OBJS)
-	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(ALLDEPS) -o $@
 
 dust-extract: dust-extract.c $(OBJS)
-	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(ALLDEPS) -o $@
 
 dust-listing: dust-listing.c $(OBJS)
-	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(ALLDEPS) -o $@
 
 dust-rebuild-index: dust-rebuild-index.c $(OBJS)
-	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $< $(OBJS) -o $@
+	$(CC) $(CFLAGS) $(PERSONAL_CFLAGS) $(LDFLAGS) $(ALLDEPS) -o $@
 
