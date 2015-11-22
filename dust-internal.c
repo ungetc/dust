@@ -26,6 +26,7 @@
 #define ct_assert(e) enum { ASSERT_CONCAT(assert_line_, __LINE__) = 1/((e)?1:0) }
 
 #define MAX_ENTRIES_PER_INDEX_BUCKET ((1024 * 4) / (sizeof (struct index_entry)))
+#define DEFAULT_INDEX_VERSION 0
 
 #define ARENA_HUNK_SIZE (100 * 1000 * 1000)
 
@@ -142,6 +143,7 @@ static int init_and_mmap_index_from_fd(int fd, dust_index *index, int mmap_prot,
 
   memset(index->header, 0, sizeof *index->header);
   index->header->num_buckets = uint64host_to_be(num_buckets);
+  index->header->version = uint64host_to_be(DEFAULT_INDEX_VERSION);
 
   index->buckets = mmap(
     NULL,
@@ -272,7 +274,9 @@ static void init_new_index(struct dust_index *index, int num_buckets)
   assert(index);
 
   index->header = dmalloc(sizeof(struct index_header));
+  memset(index->header, 0, sizeof *index->header);
   index->header->num_buckets = uint64host_to_be(num_buckets);
+  index->header->version = uint64host_to_be(DEFAULT_INDEX_VERSION);
 
   index->buckets = calloc(num_buckets, sizeof(struct index_bucket));
   assert(index->buckets);
@@ -584,7 +588,7 @@ dust_index *dust_open_index(const char *index_path, int permissions, int flags, 
     }
   }
 
-  if (uint64be_to_host(index->header->version) != 0) {
+  if (uint64be_to_host(index->header->version) > DEFAULT_INDEX_VERSION) {
     goto fail;
   }
 
